@@ -1,0 +1,104 @@
+package middleware
+
+import (
+	"database/sql"
+	"errors"
+	"slices"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+const userContextKey = "current_user"
+
+type UserContext struct {
+	ID         int64  `json:"id"`
+	FirstName  string `json:"first_name"`
+	LastName   string `json:"last_name"`
+	MiddleName string `json:"middle_name"`
+	FullName   string `json:"full_name"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+}
+
+func AuthRequired(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+		if authHeader == "" {
+			c.AbortWithStatusJSON(401, gin.H{"error": "missing Authorization header"})
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == "" || token == authHeader {
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid bearer token"})
+			return
+		}
+
+		var user UserContext
+		err := db.QueryRow(`
+			SELECT u.id,
+			       u.first_name,
+			       u.last_name,
+			       u.middle_name,
+			       u.full_name,
+			       u.username,
+			       u.role
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.token = $1
+			ORDER BY s.id DESC
+			LIMIT 1
+		`, token).Scan(
+			&user.ID,
+			&user.FirstName,
+			&user.LastName,
+			&user.MiddleName,
+			&user.FullName,
+			&user.Username,
+			&user.Role,
+		)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.AbortWithStatusJSON(401, gin.H{"error": "invalid session"})
+				return
+			}
+			c.AbortWithStatusJSON(500, gin.H{"error": "failed to resolve session"})
+			return
+		}
+
+		c.Set(userContextKey, user)
+		c.Next()
+	}
+}
+
+func CurrentUser(c *gin.Context) *UserContext {
+	value, exists := c.Get(userContextKey)
+	if !exists {
+		return nil
+	}
+
+	user, ok := value.(UserContext)
+	if !ok {
+		return nil
+	}
+
+	return &user
+}
+
+func RequireRoles(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user := CurrentUser(c)
+		if user == nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		if !slices.Contains(roles, user.Role) {
+			c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+			return
+		}
+
+		c.Next()
+	}
+}

@@ -1,0 +1,771 @@
+basePath: /
+definitions:
+  auth.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  auth.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  auth.loginResponse:
+    properties:
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/auth.loginUser'
+    type: object
+  auth.loginUser:
+    properties:
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: integer
+      role:
+        type: string
+    type: object
+  auth.meResponse:
+    properties:
+      user:
+        $ref: '#/definitions/auth.meUser'
+    type: object
+  auth.meUser:
+    properties:
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: integer
+      role:
+        type: string
+    type: object
+  handler.healthResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  model.PlanningPeriodIndicator:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      target_indicator:
+        type: string
+      unit:
+        type: string
+      updated_at:
+        type: string
+      year_values:
+        additionalProperties:
+          type: number
+        type: object
+    type: object
+  period.createPlanningPeriodRequest:
+    properties:
+      target_indicator:
+        type: string
+      unit:
+        type: string
+      year_values:
+        additionalProperties:
+          type: number
+        type: object
+    required:
+    - target_indicator
+    - unit
+    - year_values
+    type: object
+  period.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  period.planningPeriodListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/model.PlanningPeriodIndicator'
+        type: array
+    type: object
+  period.updatePlanningPeriodRequest:
+    properties:
+      target_indicator:
+        type: string
+      unit:
+        type: string
+      year_values:
+        additionalProperties:
+          type: number
+        type: object
+    type: object
+  plan.Plan:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      status:
+        type: string
+      year:
+        type: integer
+    type: object
+  plan.createPlanRequest:
+    properties:
+      status:
+        type: string
+      year:
+        type: integer
+    required:
+    - year
+    type: object
+  plan.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  plan.planListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/plan.Plan'
+        type: array
+    type: object
+  plan.updatePlanStatusRequest:
+    properties:
+      status:
+        type: string
+    required:
+    - status
+    type: object
+  report.Report:
+    properties:
+      file_path:
+        type: string
+      id:
+        type: integer
+      task_id:
+        type: integer
+      uploaded_at:
+        type: string
+      uploaded_by:
+        type: integer
+    type: object
+  report.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  report.reportListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/report.Report'
+        type: array
+    type: object
+  task.Task:
+    properties:
+      completion_percent:
+        type: integer
+      created_at:
+        type: string
+      deadline:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      parent_id:
+        type: integer
+      plan_id:
+        type: integer
+      planned_value:
+        type: string
+      responsible_user_id:
+        type: integer
+      result_text:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  task.createTaskRequest:
+    properties:
+      deadline:
+        type: string
+      description:
+        type: string
+      parent_id:
+        type: integer
+      plan_id:
+        type: integer
+      planned_value:
+        type: string
+      responsible_user_id:
+        type: integer
+      title:
+        type: string
+    required:
+    - deadline
+    - plan_id
+    - responsible_user_id
+    - title
+    type: object
+  task.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  task.taskListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/task.Task'
+        type: array
+    type: object
+  task.updateTaskRequest:
+    properties:
+      completion_percent:
+        type: integer
+      deadline:
+        type: string
+      description:
+        type: string
+      planned_value:
+        type: string
+      responsible_user_id:
+        type: integer
+      result_text:
+        type: string
+      title:
+        type: string
+    type: object
+  task.updateTaskStatusRequest:
+    properties:
+      comment:
+        type: string
+      status:
+        type: string
+    required:
+    - status
+    type: object
+  task.updateTaskStatusResponse:
+    properties:
+      comment:
+        type: string
+      task:
+        $ref: '#/definitions/task.Task'
+    type: object
+info:
+  contact: {}
+  description: API for planning, execution control and reporting in Oper Plan.
+  title: Oper Plan API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      description: Returns server health state
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.healthResponse'
+      summary: Health check
+      tags:
+      - system
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates user and returns access token
+      parameters:
+      - description: Login payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/auth.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.loginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Login
+      tags:
+      - auth
+  /me:
+    get:
+      description: Returns authenticated user profile
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.meResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Current user
+      tags:
+      - auth
+  /planning-period:
+    get:
+      description: Returns admin table "Плановый период по годам"
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/period.planningPeriodListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: List planning period indicators
+      tags:
+      - planning-period
+    post:
+      consumes:
+      - application/json
+      description: Creates a new indicator row for "Плановый период по годам"
+      parameters:
+      - description: Planning period indicator payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/period.createPlanningPeriodRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.PlanningPeriodIndicator'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create planning period indicator
+      tags:
+      - planning-period
+  /planning-period/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Updates any parameter of an existing planning period indicator
+        row
+      parameters:
+      - description: Indicator ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Planning period indicator patch payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/period.updatePlanningPeriodRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.PlanningPeriodIndicator'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/period.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update planning period indicator
+      tags:
+      - planning-period
+  /plans:
+    get:
+      description: Returns yearly operational plans
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/plan.planListResponse'
+      security:
+      - BearerAuth: []
+      summary: List plans
+      tags:
+      - plans
+    post:
+      consumes:
+      - application/json
+      description: Creates a plan for selected year
+      parameters:
+      - description: Plan payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/plan.createPlanRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/plan.Plan'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/plan.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create plan
+      tags:
+      - plans
+  /plans/{id}:
+    get:
+      description: Returns plan by ID
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/plan.Plan'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/plan.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/plan.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get plan
+      tags:
+      - plans
+  /plans/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Changes status of selected plan
+      parameters:
+      - description: Plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Status payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/plan.updatePlanStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/plan.Plan'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/plan.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/plan.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update plan status
+      tags:
+      - plans
+  /tasks:
+    get:
+      description: Returns tasks with current statuses
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.taskListResponse'
+      security:
+      - BearerAuth: []
+      summary: List tasks
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      description: Creates a new task within selected plan
+      parameters:
+      - description: Task payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/task.createTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create task
+      tags:
+      - tasks
+  /tasks/{id}:
+    delete:
+      description: Deletes task by ID
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete task
+      tags:
+      - tasks
+    get:
+      description: Returns task by ID
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get task
+      tags:
+      - tasks
+    patch:
+      consumes:
+      - application/json
+      description: Updates task fields
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Task patch payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/task.updateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update task
+      tags:
+      - tasks
+  /tasks/{id}/report:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Uploads supporting document for task
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Report file (pdf/docx/xlsx/jpg/png)
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/report.Report'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/report.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload report file
+      tags:
+      - reports
+  /tasks/{id}/reports:
+    get:
+      description: Returns uploaded reports for selected task
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/report.reportListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/report.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: List task reports
+      tags:
+      - reports
+  /tasks/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Changes lifecycle status of selected task
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Status payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/task.updateTaskStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.updateTaskStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/task.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update task status
+      tags:
+      - tasks
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
