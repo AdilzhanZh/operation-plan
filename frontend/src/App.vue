@@ -13,7 +13,7 @@ const navigation = [
   { name: 'Users', to: { name: 'users' }, roles: ['admin'] },
   { name: 'Plans', to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
   { name: 'Planning Period', to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
-  { name: 'Выполнение Программы Развития', to: { name: 'program-execution' }, roles: ['admin'] },
+  { name: 'Выполнение Программы Развития', to: { name: 'program-execution' }, roles: ['admin', 'prorector'] },
   { name: 'Tasks', to: { name: 'tasks' } },
   { name: 'Review', to: { name: 'review' }, roles: ['admin'] }
 ]

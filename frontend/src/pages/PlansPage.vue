@@ -26,7 +26,7 @@ const modalSelectedIds = ref([])
 const reportModalOpen = ref(false)
 const reportIndicatorId = ref(null)
 const reportText = ref('')
-const reportFile = ref(null)
+const reportFiles = ref([])
 const reportSending = ref(false)
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
@@ -239,7 +239,7 @@ function openReportModal(row) {
   clearMessages()
   reportIndicatorId.value = row.indicator_id
   reportText.value = ''
-  reportFile.value = null
+  reportFiles.value = []
   reportModalOpen.value = true
 }
 
@@ -247,12 +247,12 @@ function closeReportModal() {
   reportModalOpen.value = false
   reportIndicatorId.value = null
   reportText.value = ''
-  reportFile.value = null
+  reportFiles.value = []
 }
 
 function handleReportFileChange(event) {
-  const [file] = event?.target?.files ?? []
-  reportFile.value = file || null
+  const files = event?.target?.files ?? []
+  reportFiles.value = Array.from(files).filter(Boolean)
 }
 
 async function submitIndicatorReport() {
@@ -267,8 +267,8 @@ async function submitIndicatorReport() {
   }
 
   const normalizedText = reportText.value.trim()
-  if (!normalizedText && !reportFile.value) {
-    errorMessage.value = 'Отчет мәтінін енгізіңіз немесе файл тіркеңіз'
+  if (reportFiles.value.length === 0) {
+    errorMessage.value = 'Кемінде бір файл жүктеу міндетті'
     return
   }
 
@@ -278,10 +278,11 @@ async function submitIndicatorReport() {
   try {
     await submitPlanIndicatorReport(row.indicator_id, selectedYear.value, {
       report_text: normalizedText,
-      file: reportFile.value
+      files: reportFiles.value
     })
     successMessage.value = `Индикатор №${row.indicator_id} бойынша отчет жіберілді`
     closeReportModal()
+    await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
@@ -470,13 +471,17 @@ onMounted(() => {
         </label>
 
         <label class="report-label">
-          Файл (міндетті емес)
+          Құжаттар (кемінде 1 файл)
           <input
             class="report-file-input"
             type="file"
+            multiple
             @change="handleReportFileChange"
           />
         </label>
+        <p v-if="reportFiles.length > 0" class="file-list">
+          Таңдалған файлдар: {{ reportFiles.map((file) => file.name).join(', ') }}
+        </p>
 
         <div class="modal-actions">
           <button class="modal-btn modal-btn-secondary" type="button" @click="closeReportModal">
@@ -764,6 +769,12 @@ onMounted(() => {
   padding: 0.5rem 0.6rem;
   font: inherit;
   background: #fff;
+}
+
+.file-list {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #475569;
 }
 
 @media (max-width: 900px) {

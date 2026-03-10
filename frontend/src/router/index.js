@@ -63,7 +63,7 @@ const routes = [
     path: '/program-execution',
     name: 'program-execution',
     component: ProgramExecutionPage,
-    meta: { requiresAuth: true, roles: ['admin'] }
+    meta: { requiresAuth: true, roles: ['admin', 'prorector'] }
   },
   {
     path: '/tasks',

@@ -184,6 +184,10 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		c.JSON(500, errorResponse{Error: "failed to prepare plans storage"})
 		return
 	}
+	if err := h.ensurePlanIndicatorReportsTable(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to prepare reports storage"})
+		return
+	}
 
 	rows, err := h.db.Query(`
 		SELECT ppi.id,
@@ -194,14 +198,19 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		       COALESCE(pid.activities, ''),
 		       COALESCE(pid.execution_deadline, ''),
 		       COALESCE(pid.responsible_user_ids, '[]'::jsonb),
-		       COALESCE(pid.responsible, '')
+		       COALESCE(pid.responsible, ''),
+		       pir.id
 		FROM planning_period_indicators ppi
 		LEFT JOIN plan_indicator_details pid
 		       ON pid.planning_period_indicator_id = ppi.id
 		      AND pid.year = $2
+		LEFT JOIN plan_indicator_reports pir
+		       ON pir.planning_period_indicator_id = ppi.id
+		      AND pir.year = $2
+		      AND pir.submitted_by = $3
 		WHERE ppi.year_values ? $1
 		ORDER BY ppi.id ASC
-	`, yearKey, year)
+	`, yearKey, year, user.ID)
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to load plan indicators"})
 		return
@@ -212,6 +221,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 	for rows.Next() {
 		var item planIndicatorRow
 		var responsibleUserIDsRaw []byte
+		var submittedReportID sql.NullInt64
 		if err := rows.Scan(
 			&item.IndicatorID,
 			&item.SourceIndicator,
@@ -222,6 +232,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 			&item.ExecutionDeadline,
 			&responsibleUserIDsRaw,
 			&item.Responsible,
+			&submittedReportID,
 		); err != nil {
 			c.JSON(500, errorResponse{Error: "failed to parse plan indicators"})
 			return
@@ -234,6 +245,9 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		}
 
 		if user.Role == "prorector" && !containsInt64(parsedIDs, user.ID) {
+			continue
+		}
+		if user.Role == "prorector" && submittedReportID.Valid {
 			continue
 		}
 

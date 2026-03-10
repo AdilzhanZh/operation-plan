@@ -47,6 +47,8 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 	router.PUT("/plans/indicators/:indicator_id", h.upsertPlanIndicator)
 	router.POST("/plans/indicators/:indicator_id/report", h.submitPlanIndicatorReport)
 	router.GET("/plans/reports", h.listPlanReports)
+	router.PATCH("/plans/reports/:report_id/review", h.reviewPlanIndicatorReport)
+	router.GET("/plans/reports/files/:file_id/download", h.downloadPlanReportFile)
 	router.GET("/plan-records/:id", h.getPlan)
 	router.PATCH("/plan-records/:id/status", h.updatePlanStatus)
 }

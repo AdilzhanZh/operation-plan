@@ -106,6 +106,11 @@ func RunSQLMigrations(db *sql.DB) error {
 			report_text TEXT NOT NULL DEFAULT '',
 			file_path VARCHAR(1024) NOT NULL DEFAULT '',
 			file_name VARCHAR(255) NOT NULL DEFAULT '',
+			status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			review_note TEXT NOT NULL DEFAULT '',
+			approval_formula TEXT NOT NULL DEFAULT '',
+			reviewed_by BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
+			reviewed_at TIMESTAMPTZ NULL,
 			submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -116,6 +121,43 @@ func RunSQLMigrations(db *sql.DB) error {
 		  ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) NOT NULL DEFAULT '';`,
 		`ALTER TABLE plan_indicator_reports
 		  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'pending';`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS approval_formula TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS reviewed_by BIGINT NULL REFERENCES users(id) ON DELETE SET NULL;`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL;`,
+		`UPDATE plan_indicator_reports
+		 SET status = 'pending'
+		 WHERE status IS NULL OR TRIM(status) = '';`,
+		`CREATE TABLE IF NOT EXISTS plan_indicator_report_files (
+			id BIGSERIAL PRIMARY KEY,
+			report_id BIGINT NOT NULL REFERENCES plan_indicator_reports(id) ON DELETE CASCADE,
+			file_name VARCHAR(255) NOT NULL,
+			storage_path TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`ALTER TABLE plan_indicator_report_files
+		  ADD COLUMN IF NOT EXISTS storage_path TEXT NOT NULL DEFAULT '';`,
+		`INSERT INTO plan_indicator_report_files (report_id, file_name, storage_path, created_at)
+		SELECT pir.id,
+		       CASE
+		           WHEN COALESCE(NULLIF(TRIM(pir.file_name), ''), '') <> '' THEN pir.file_name
+		           ELSE CONCAT('legacy_file_', pir.id)
+		       END,
+		       pir.file_path,
+		       NOW()
+		FROM plan_indicator_reports pir
+		WHERE COALESCE(TRIM(pir.file_path), '') <> ''
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM plan_indicator_report_files rf
+		      WHERE rf.report_id = pir.id
+		  );`,
 	}
 
 	for _, stmt := range statements {

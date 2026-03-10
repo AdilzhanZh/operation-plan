@@ -24,8 +24,15 @@ export async function submitPlanIndicatorReport(indicatorId, year, payload) {
   if (payload?.report_text) {
     formData.append('report_text', payload.report_text)
   }
-  if (payload?.file) {
-    formData.append('file', payload.file)
+
+  if (Array.isArray(payload?.files)) {
+    for (const file of payload.files) {
+      if (file) {
+        formData.append('files', file)
+      }
+    }
+  } else if (payload?.file) {
+    formData.append('files', payload.file)
   }
 
   const { data } = await http.post(`/plans/indicators/${indicatorId}/report`, formData, {
@@ -37,9 +44,26 @@ export async function submitPlanIndicatorReport(indicatorId, year, payload) {
   return data
 }
 
-export async function fetchPlanReports(year) {
+export async function fetchPlanReports(year, options = {}) {
+  const params = { year }
+  if (options?.status) {
+    params.status = options.status
+  }
+
   const { data } = await http.get('/plans/reports', {
-    params: { year }
+    params
   })
   return data
+}
+
+export async function reviewPlanReport(reportId, payload) {
+  const { data } = await http.patch(`/plans/reports/${reportId}/review`, payload)
+  return data
+}
+
+export async function downloadPlanReportFile(fileId) {
+  const response = await http.get(`/plans/reports/files/${fileId}/download`, {
+    responseType: 'blob'
+  })
+  return response
 }
