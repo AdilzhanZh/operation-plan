@@ -25,6 +25,10 @@ type listUsersResponse struct {
 	Items []UserResponse `json:"items"`
 }
 
+type prorectorListResponse struct {
+	Items []ProrectorOption `json:"items"`
+}
+
 type UserResponse struct {
 	ID            int64     `json:"id"`
 	FirstName     string    `json:"first_name"`
@@ -35,6 +39,12 @@ type UserResponse struct {
 	PasswordPlain string    `json:"password_plain"`
 	Role          string    `json:"role"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+type ProrectorOption struct {
+	ID       int64  `json:"id"`
+	FullName string `json:"full_name"`
+	Username string `json:"username"`
 }
 
 type createUserRequest struct {
@@ -55,6 +65,7 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 	h := &Handler{db: db}
 
 	router.GET("/users", h.listUsers)
+	router.GET("/users/prorectors", h.listProrectors)
 	router.POST("/users", h.createUser)
 }
 
@@ -105,6 +116,46 @@ func (h *Handler) listUsers(c *gin.Context) {
 	}
 
 	c.JSON(200, listUsersResponse{Items: items})
+}
+
+// listProrectors godoc
+// @Summary List prorector users
+// @Description Returns users with role=prorector for assignment in plans
+// @Tags users
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} prorectorListResponse
+// @Failure 500 {object} errorResponse
+// @Router /users/prorectors [get]
+func (h *Handler) listProrectors(c *gin.Context) {
+	rows, err := h.db.Query(`
+		SELECT id, full_name, username
+		FROM users
+		WHERE role = 'prorector'
+		ORDER BY full_name ASC, id ASC
+	`)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load prorectors"})
+		return
+	}
+	defer rows.Close()
+
+	items := make([]ProrectorOption, 0)
+	for rows.Next() {
+		var item ProrectorOption
+		if err := rows.Scan(&item.ID, &item.FullName, &item.Username); err != nil {
+			c.JSON(500, errorResponse{Error: "failed to parse prorectors"})
+			return
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to iterate prorectors"})
+		return
+	}
+
+	c.JSON(200, prorectorListResponse{Items: items})
 }
 
 // createUser godoc

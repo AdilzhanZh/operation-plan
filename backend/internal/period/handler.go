@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"OperationPlan/internal/middleware"
 	"OperationPlan/internal/model"
 
 	"github.com/gin-gonic/gin"
@@ -112,6 +113,16 @@ func (h *Handler) list(c *gin.Context) {
 // @Failure 500 {object} errorResponse
 // @Router /planning-period [post]
 func (h *Handler) create(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+	if user.Role != "admin" {
+		c.JSON(403, errorResponse{Error: "forbidden"})
+		return
+	}
+
 	if err := h.ensurePlanningPeriodTable(); err != nil {
 		slog.Error("failed to ensure planning_period_indicators table", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})
@@ -174,6 +185,16 @@ func (h *Handler) create(c *gin.Context) {
 // @Failure 500 {object} errorResponse
 // @Router /planning-period/{id} [patch]
 func (h *Handler) update(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+	if user.Role != "admin" {
+		c.JSON(403, errorResponse{Error: "forbidden"})
+		return
+	}
+
 	if err := h.ensurePlanningPeriodTable(); err != nil {
 		slog.Error("failed to ensure planning_period_indicators table", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})

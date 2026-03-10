@@ -11,8 +11,8 @@ const navigation = [
   { name: 'Dashboard', to: { name: 'dashboard' } },
   { name: 'Profile', to: { name: 'profile' } },
   { name: 'Users', to: { name: 'users' }, roles: ['admin'] },
-  { name: 'Plans', to: { name: 'plans' }, roles: ['admin', 'viewer'] },
-  { name: 'Planning Period', to: { name: 'planning-period' }, roles: ['admin'] },
+  { name: 'Plans', to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
+  { name: 'Planning Period', to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
   { name: 'Tasks', to: { name: 'tasks' } },
   { name: 'Review', to: { name: 'review' }, roles: ['admin'] }
 ]

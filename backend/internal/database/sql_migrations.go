@@ -92,10 +92,13 @@ func RunSQLMigrations(db *sql.DB) error {
 			activities TEXT NOT NULL DEFAULT '',
 			execution_deadline TEXT NOT NULL DEFAULT '',
 			responsible TEXT NOT NULL DEFAULT '',
+			responsible_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (planning_period_indicator_id, year)
 		);`,
+		`ALTER TABLE plan_indicator_details
+		  ADD COLUMN IF NOT EXISTS responsible_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb;`,
 	}
 
 	for _, stmt := range statements {

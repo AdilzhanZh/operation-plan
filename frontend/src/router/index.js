@@ -50,13 +50,13 @@ const routes = [
     path: '/plans',
     name: 'plans',
     component: PlansPage,
-    meta: { requiresAuth: true, roles: ['admin', 'viewer'] }
+    meta: { requiresAuth: true, roles: ['admin', 'prorector', 'viewer'] }
   },
   {
     path: '/planning-period',
     name: 'planning-period',
     component: PlanningPeriodPage,
-    meta: { requiresAuth: true, roles: ['admin'] }
+    meta: { requiresAuth: true, roles: ['admin', 'prorector'] }
   },
   {
     path: '/tasks',

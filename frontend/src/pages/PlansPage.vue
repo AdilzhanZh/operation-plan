@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { fetchPlanIndicators, fetchPlanYears, savePlanIndicator } from '../services/plan.service'
+import { fetchProrectorsRequest } from '../services/user.service'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
@@ -9,10 +10,14 @@ const authStore = useAuthStore()
 const years = ref([])
 const selectedYear = ref('')
 const rows = ref([])
+const prorectors = ref([])
 const loading = ref(false)
 const savingIndicatorId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
+const assignModalOpen = ref(false)
+const activeIndicatorId = ref(null)
+const modalSelectedIds = ref([])
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 const hasYears = computed(() => years.value.length > 0)
@@ -21,6 +26,52 @@ const canLoadYear = computed(() => selectedYear.value !== '')
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function normalizeIDList(values) {
+  if (!Array.isArray(values)) {
+    return []
+  }
+
+  const unique = new Set()
+  for (const value of values) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      unique.add(parsed)
+    }
+  }
+
+  return Array.from(unique)
+}
+
+function formatResponsibleNamesByIDs(ids) {
+  const normalized = normalizeIDList(ids)
+  if (normalized.length === 0) {
+    return ''
+  }
+
+  return normalized
+    .map((id) => prorectors.value.find((item) => Number(item.id) === id))
+    .filter(Boolean)
+    .map((item) => item.full_name)
+    .join(', ')
+}
+
+function formatPlannedValue(value, unit) {
+  const rawValue = String(value ?? '').trim()
+  const rawUnit = String(unit ?? '').trim()
+
+  if (rawValue === '') {
+    return '—'
+  }
+  if (rawUnit === '') {
+    return rawValue
+  }
+  if (rawUnit === '%') {
+    return `${rawValue}%`
+  }
+
+  return `${rawValue} ${rawUnit}`
 }
 
 async function loadYears() {
@@ -39,7 +90,29 @@ async function loadRows() {
   }
 
   const response = await fetchPlanIndicators(selectedYear.value)
-  rows.value = response.items ?? []
+  rows.value = (response.items ?? []).map((item) => ({
+    ...item,
+    measurement_unit: item.measurement_unit ?? item.unit ?? '',
+    responsible_user_ids: Array.isArray(item.responsible_user_ids)
+      ? item.responsible_user_ids.map((value) => Number(value))
+      : []
+  }))
+
+  for (const row of rows.value) {
+    if ((!row.responsible || row.responsible.trim() === '') && row.responsible_user_ids.length > 0) {
+      row.responsible = formatResponsibleNamesByIDs(row.responsible_user_ids)
+    }
+  }
+}
+
+async function loadProrectors() {
+  if (!isAdmin.value) {
+    prorectors.value = []
+    return
+  }
+
+  const response = await fetchProrectorsRequest()
+  prorectors.value = response.items ?? []
 }
 
 async function initialize() {
@@ -47,6 +120,7 @@ async function initialize() {
   clearMessages()
 
   try {
+    await loadProrectors()
     await loadYears()
     await loadRows()
   } catch (error) {
@@ -89,10 +163,15 @@ async function saveRow(row) {
       development_indicator: row.development_indicator,
       activities: row.activities,
       execution_deadline: row.execution_deadline,
-      responsible: row.responsible
+      responsible_user_ids: normalizeIDList(row.responsible_user_ids)
     })
 
-    Object.assign(row, saved)
+    Object.assign(row, {
+      ...saved,
+      responsible_user_ids: Array.isArray(saved?.responsible_user_ids)
+        ? saved.responsible_user_ids.map((value) => Number(value))
+        : []
+    })
     successMessage.value = `Индикатор №${row.indicator_id} сақталды`
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
@@ -102,6 +181,42 @@ async function saveRow(row) {
   } finally {
     savingIndicatorId.value = null
   }
+}
+
+function openResponsibleModal(row) {
+  if (!isAdmin.value) {
+    return
+  }
+
+  activeIndicatorId.value = row.indicator_id
+  modalSelectedIds.value = normalizeIDList(row.responsible_user_ids)
+  assignModalOpen.value = true
+}
+
+function closeResponsibleModal() {
+  assignModalOpen.value = false
+  activeIndicatorId.value = null
+  modalSelectedIds.value = []
+}
+
+async function applyResponsibleSelection() {
+  const indicatorID = activeIndicatorId.value
+  if (indicatorID === null) {
+    closeResponsibleModal()
+    return
+  }
+
+  const row = rows.value.find((item) => item.indicator_id === indicatorID)
+  if (!row) {
+    closeResponsibleModal()
+    return
+  }
+
+  const selectedIDs = normalizeIDList(modalSelectedIds.value)
+  row.responsible_user_ids = selectedIDs
+  row.responsible = formatResponsibleNamesByIDs(selectedIDs)
+  closeResponsibleModal()
+  await saveRow(row)
 }
 
 onMounted(() => {
@@ -161,9 +276,15 @@ onMounted(() => {
                   class="cell-textarea indicator-text"
                   rows="3"
                 />
+                <div class="unit-inline">
+                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                </div>
               </template>
               <template v-else>
                 <div class="cell-readonly">{{ row.development_indicator }}</div>
+                <div class="unit-inline">
+                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                </div>
               </template>
             </td>
 
@@ -187,7 +308,15 @@ onMounted(() => {
 
             <td>
               <template v-if="isAdmin">
-                <input v-model="row.responsible" class="cell-input" type="text" />
+                <div class="cell-readonly responsible-preview">
+                  {{ row.responsible || 'Ответственные таңдалмаған' }}
+                </div>
+                <button class="assign-btn" type="button" @click="openResponsibleModal(row)">
+                  Ответственные бекіту
+                </button>
+                <p v-if="prorectors.length === 0" class="cell-note">
+                  Проректорлар тізімі жоқ.
+                </p>
                 <button
                   class="save-btn"
                   :disabled="savingIndicatorId === row.indicator_id"
@@ -203,6 +332,43 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="assignModalOpen" class="modal-backdrop" @click.self="closeResponsibleModal">
+      <div class="modal-card">
+        <h3 class="modal-title">Ответственные таңдау</h3>
+        <p class="modal-subtitle">
+          Керек проректорларға галочка қойып, «Бекіту» батырмасын басыңыз.
+        </p>
+
+        <div class="prorector-list">
+          <label
+            v-for="prorector in prorectors"
+            :key="`prorector-option-${prorector.id}`"
+            class="prorector-item"
+          >
+            <input
+              v-model="modalSelectedIds"
+              type="checkbox"
+              :value="Number(prorector.id)"
+            />
+            <span>{{ prorector.full_name }} ({{ prorector.username }})</span>
+          </label>
+
+          <p v-if="prorectors.length === 0" class="empty-prorectors">
+            Проректорлар тізімі бос.
+          </p>
+        </div>
+
+        <div class="modal-actions">
+          <button class="modal-btn modal-btn-secondary" type="button" @click="closeResponsibleModal">
+            Бас тарту
+          </button>
+          <button class="modal-btn modal-btn-primary" type="button" @click="applyResponsibleSelection">
+            Бекіту
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -291,9 +457,41 @@ onMounted(() => {
   min-height: 86px;
 }
 
+.unit-inline {
+  margin-top: 0.35rem;
+  font-size: 0.84rem;
+  color: #475569;
+}
+
 .cell-readonly {
   white-space: pre-wrap;
   color: #0f172a;
+}
+
+.responsible-preview {
+  min-height: 96px;
+  border: 1px solid #c8d2de;
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  background: #fff;
+}
+
+.assign-btn {
+  margin-top: 0.45rem;
+  width: 100%;
+  border: 1px solid #0f766e;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f766e;
+  padding: 0.45rem 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cell-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
 }
 
 .save-btn {
@@ -338,11 +536,98 @@ onMounted(() => {
   color: #475569;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(620px, 100%);
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #d8e0ea;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.2);
+  padding: 1rem;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.modal-subtitle {
+  margin: 0.4rem 0 0.75rem;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.prorector-list {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.prorector-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.95rem;
+}
+
+.empty-prorectors {
+  margin: 0;
+  color: #64748b;
+}
+
+.modal-actions {
+  margin-top: 0.85rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.modal-btn {
+  border-radius: 7px;
+  padding: 0.45rem 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.modal-btn-secondary {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.modal-btn-primary {
+  border: 1px solid #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
 @media (max-width: 900px) {
   .toolbar {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.55rem;
+  }
+
+  .modal-card {
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .prorector-list {
+    max-height: 42vh;
   }
 }
 </style>

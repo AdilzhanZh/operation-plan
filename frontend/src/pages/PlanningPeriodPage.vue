@@ -1,11 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { useAuthStore } from '../store/auth'
 import {
   createPlanningPeriodIndicator,
   fetchPlanningPeriod,
   updatePlanningPeriodIndicator
 } from '../services/planningPeriod.service'
+
+const authStore = useAuthStore()
 
 let localYearRowId = 0
 
@@ -176,6 +179,7 @@ const tableYears = computed(() => {
 
 const canAddCreateYear = computed(() => canShowAddYearButton(createForm.years))
 const canAddEditYear = computed(() => canShowAddYearButton(editForm.years))
+const isAdmin = computed(() => authStore.user?.role === 'admin')
 
 function clearMessages() {
   errorMessage.value = ''
@@ -189,6 +193,10 @@ function resetCreateForm() {
 }
 
 function startEdit(row) {
+  if (!isAdmin.value) {
+    return
+  }
+
   clearMessages()
   editingId.value = row.id
   editForm.targetIndicator = row.target_indicator
@@ -221,6 +229,10 @@ async function loadRows() {
 }
 
 function addCreateYear() {
+  if (!isAdmin.value) {
+    return
+  }
+
   const { error } = pushNextYear(createForm.years)
   if (error) {
     errorMessage.value = error
@@ -228,6 +240,10 @@ function addCreateYear() {
 }
 
 function addEditYear() {
+  if (!isAdmin.value) {
+    return
+  }
+
   const { error } = pushNextYear(editForm.years)
   if (error) {
     errorMessage.value = error
@@ -235,6 +251,10 @@ function addEditYear() {
 }
 
 function removeCreateYear(localId) {
+  if (!isAdmin.value) {
+    return
+  }
+
   if (createForm.years.length <= 1) {
     return
   }
@@ -244,6 +264,10 @@ function removeCreateYear(localId) {
 }
 
 function removeEditYear(localId) {
+  if (!isAdmin.value) {
+    return
+  }
+
   if (editForm.years.length <= 1) {
     return
   }
@@ -253,6 +277,10 @@ function removeEditYear(localId) {
 }
 
 async function createRow() {
+  if (!isAdmin.value) {
+    return
+  }
+
   clearMessages()
 
   const targetIndicator = createForm.targetIndicator.trim()
@@ -292,6 +320,10 @@ async function createRow() {
 }
 
 async function saveEdit() {
+  if (!isAdmin.value) {
+    return
+  }
+
   if (!editingId.value) {
     return
   }
@@ -347,7 +379,7 @@ onMounted(loadRows)
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
-    <div class="card">
+    <div v-if="isAdmin" class="card">
       <h3>Добавить показатель</h3>
 
       <div class="main-fields">
@@ -407,6 +439,10 @@ onMounted(loadRows)
       </button>
     </div>
 
+    <p v-else class="readonly-note">
+      Бұл бөлім prorector үшін тек оқу режимінде қолжетімді.
+    </p>
+
     <div v-if="loading" class="loading">Жүктелуде...</div>
 
     <template v-else>
@@ -417,7 +453,7 @@ onMounted(loadRows)
               <th>Целевой индикатор</th>
               <th>ед. изм.</th>
               <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
-              <th>Әрекет</th>
+              <th v-if="isAdmin">Әрекет</th>
             </tr>
           </thead>
 
@@ -428,7 +464,7 @@ onMounted(loadRows)
               <td v-for="year in tableYears" :key="`${row.id}-${year}`">
                 {{ row.year_values?.[year] ?? '—' }}
               </td>
-              <td>
+              <td v-if="isAdmin">
                 <button type="button" class="ghost" @click="startEdit(row)">Өзгерту</button>
               </td>
             </tr>
@@ -441,7 +477,7 @@ onMounted(loadRows)
       </p>
     </template>
 
-    <div v-if="editingId" class="card edit-card">
+    <div v-if="isAdmin && editingId" class="card edit-card">
       <h3>Көрсеткішті өзгерту</h3>
 
       <div class="main-fields">
@@ -528,6 +564,15 @@ h3 {
   background: #dcfce7;
   color: #166534;
   border: 1px solid #bbf7d0;
+}
+
+.readonly-note {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1e3a8a;
 }
 
 .main-fields {

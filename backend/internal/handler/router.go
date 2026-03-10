@@ -28,10 +28,10 @@ func RegisterRoutes(router *gin.Engine, db *sql.DB) {
 	plan.RegisterRoutes(protected, db)
 	task.RegisterRoutes(protected, db)
 	report.RegisterRoutes(protected, db)
+	period.RegisterRoutes(protected, db)
 
 	adminProtected := protected.Group("/")
 	adminProtected.Use(middleware.RequireRoles("admin"))
-	period.RegisterRoutes(adminProtected, db)
 	user.RegisterRoutes(adminProtected, db)
 }
 
