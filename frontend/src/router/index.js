@@ -5,6 +5,7 @@ import RegisterPage from '../pages/RegisterPage.vue'
 import PlanningPeriodPage from '../pages/PlanningPeriodPage.vue'
 import PlansPage from '../pages/PlansPage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
+import ProgramExecutionPage from '../pages/ProgramExecutionPage.vue'
 import ReviewPage from '../pages/ReviewPage.vue'
 import TasksPage from '../pages/TasksPage.vue'
 import UsersPage from '../pages/UsersPage.vue'
@@ -57,6 +58,12 @@ const routes = [
     name: 'planning-period',
     component: PlanningPeriodPage,
     meta: { requiresAuth: true, roles: ['admin', 'prorector'] }
+  },
+  {
+    path: '/program-execution',
+    name: 'program-execution',
+    component: ProgramExecutionPage,
+    meta: { requiresAuth: true, roles: ['admin'] }
   },
   {
     path: '/tasks',

@@ -99,6 +99,23 @@ func RunSQLMigrations(db *sql.DB) error {
 		);`,
 		`ALTER TABLE plan_indicator_details
 		  ADD COLUMN IF NOT EXISTS responsible_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+		`CREATE TABLE IF NOT EXISTS plan_indicator_reports (
+			id BIGSERIAL PRIMARY KEY,
+			planning_period_indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
+			year INT NOT NULL,
+			report_text TEXT NOT NULL DEFAULT '',
+			file_path VARCHAR(1024) NOT NULL DEFAULT '',
+			file_name VARCHAR(255) NOT NULL DEFAULT '',
+			submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (planning_period_indicator_id, year, submitted_by)
+		);`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) NOT NULL DEFAULT '';`,
+		`ALTER TABLE plan_indicator_reports
+		  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 	}
 
 	for _, stmt := range statements {

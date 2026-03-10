@@ -1,7 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
-import { fetchPlanIndicators, fetchPlanYears, savePlanIndicator } from '../services/plan.service'
+import {
+  fetchPlanIndicators,
+  fetchPlanYears,
+  savePlanIndicator,
+  submitPlanIndicatorReport
+} from '../services/plan.service'
 import { fetchProrectorsRequest } from '../services/user.service'
 import { useAuthStore } from '../store/auth'
 
@@ -18,10 +23,17 @@ const successMessage = ref('')
 const assignModalOpen = ref(false)
 const activeIndicatorId = ref(null)
 const modalSelectedIds = ref([])
+const reportModalOpen = ref(false)
+const reportIndicatorId = ref(null)
+const reportText = ref('')
+const reportFile = ref(null)
+const reportSending = ref(false)
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
+const isProrector = computed(() => authStore.user?.role === 'prorector')
 const hasYears = computed(() => years.value.length > 0)
 const canLoadYear = computed(() => selectedYear.value !== '')
+const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
 
 function clearMessages() {
   errorMessage.value = ''
@@ -219,6 +231,67 @@ async function applyResponsibleSelection() {
   await saveRow(row)
 }
 
+function openReportModal(row) {
+  if (!isProrector.value) {
+    return
+  }
+
+  clearMessages()
+  reportIndicatorId.value = row.indicator_id
+  reportText.value = ''
+  reportFile.value = null
+  reportModalOpen.value = true
+}
+
+function closeReportModal() {
+  reportModalOpen.value = false
+  reportIndicatorId.value = null
+  reportText.value = ''
+  reportFile.value = null
+}
+
+function handleReportFileChange(event) {
+  const [file] = event?.target?.files ?? []
+  reportFile.value = file || null
+}
+
+async function submitIndicatorReport() {
+  if (!isProrector.value || !canLoadYear.value || reportIndicatorId.value === null) {
+    return
+  }
+
+  const row = rows.value.find((item) => item.indicator_id === reportIndicatorId.value)
+  if (!row) {
+    closeReportModal()
+    return
+  }
+
+  const normalizedText = reportText.value.trim()
+  if (!normalizedText && !reportFile.value) {
+    errorMessage.value = 'Отчет мәтінін енгізіңіз немесе файл тіркеңіз'
+    return
+  }
+
+  reportSending.value = true
+  clearMessages()
+
+  try {
+    await submitPlanIndicatorReport(row.indicator_id, selectedYear.value, {
+      report_text: normalizedText,
+      file: reportFile.value
+    })
+    successMessage.value = `Индикатор №${row.indicator_id} бойынша отчет жіберілді`
+    closeReportModal()
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? 'Отчет жіберу кезінде қате болды'
+  } finally {
+    reportSending.value = false
+  }
+}
+
 onMounted(() => {
   initialize()
 })
@@ -327,6 +400,14 @@ onMounted(() => {
               </template>
               <template v-else>
                 <div class="cell-readonly">{{ row.responsible || '—' }}</div>
+                <button
+                  v-if="isProrector"
+                  class="report-btn"
+                  type="button"
+                  @click="openReportModal(row)"
+                >
+                  Отправить отчет
+                </button>
               </template>
             </td>
           </tr>
@@ -366,6 +447,48 @@ onMounted(() => {
           </button>
           <button class="modal-btn modal-btn-primary" type="button" @click="applyResponsibleSelection">
             Бекіту
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="reportModalOpen" class="modal-backdrop" @click.self="closeReportModal">
+      <div class="modal-card">
+        <h3 class="modal-title">Отправить отчет</h3>
+        <p class="modal-subtitle">
+          {{ activeReportRow?.development_indicator || 'Индикатор' }}
+        </p>
+
+        <label class="report-label">
+          Текст отчета
+          <textarea
+            v-model="reportText"
+            class="report-textarea"
+            rows="6"
+            placeholder="Индикатор бойынша орындалу нәтижесін жазыңыз..."
+          />
+        </label>
+
+        <label class="report-label">
+          Файл (міндетті емес)
+          <input
+            class="report-file-input"
+            type="file"
+            @change="handleReportFileChange"
+          />
+        </label>
+
+        <div class="modal-actions">
+          <button class="modal-btn modal-btn-secondary" type="button" @click="closeReportModal">
+            Бас тарту
+          </button>
+          <button
+            class="modal-btn modal-btn-primary"
+            type="button"
+            :disabled="reportSending"
+            @click="submitIndicatorReport"
+          >
+            {{ reportSending ? 'Жіберілуде...' : 'Отправить' }}
           </button>
         </div>
       </div>
@@ -483,6 +606,18 @@ onMounted(() => {
   border-radius: 7px;
   background: #ffffff;
   color: #0f766e;
+  padding: 0.45rem 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-btn {
+  margin-top: 0.5rem;
+  width: 100%;
+  border: 1px solid #0f766e;
+  border-radius: 7px;
+  background: #0f766e;
+  color: #ffffff;
   padding: 0.45rem 0.6rem;
   font-weight: 600;
   cursor: pointer;
@@ -612,6 +747,23 @@ onMounted(() => {
   border: 1px solid #0f766e;
   background: #0f766e;
   color: #ffffff;
+}
+
+.report-label {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  font-size: 0.9rem;
+}
+
+.report-textarea,
+.report-file-input {
+  width: 100%;
+  border: 1px solid #c8d2de;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  background: #fff;
 }
 
 @media (max-width: 900px) {
