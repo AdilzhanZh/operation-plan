@@ -1,8 +1,12 @@
-import http from './http'
+import http, { fetchAllPaginated } from './http'
 
-export async function fetchPlanningPeriod() {
-  const { data } = await http.get('/planning-period')
-  return data
+export async function fetchPlanningPeriod(params = {}) {
+  if (params?.page || params?.limit) {
+    const { data } = await http.get('/planning-period', { params })
+    return data
+  }
+
+  return fetchAllPaginated('/planning-period', params)
 }
 
 export async function createPlanningPeriodIndicator(payload) {

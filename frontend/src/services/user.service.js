@@ -1,8 +1,12 @@
-import http from './http'
+import http, { fetchAllPaginated } from './http'
 
-export async function fetchUsersRequest() {
-  const { data } = await http.get('/users')
-  return data
+export async function fetchUsersRequest(params = {}) {
+  if (params?.page || params?.limit) {
+    const { data } = await http.get('/users', { params })
+    return data
+  }
+
+  return fetchAllPaginated('/users', params)
 }
 
 export async function fetchProrectorsRequest() {

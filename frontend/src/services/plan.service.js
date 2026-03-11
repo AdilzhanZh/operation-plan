@@ -1,4 +1,4 @@
-import http from './http'
+import http, { fetchAllPaginated } from './http'
 
 export async function fetchPlanYears() {
   const { data } = await http.get('/plans/years')
@@ -10,11 +10,22 @@ export async function fetchPlanIndicators(year, options = {}) {
   if (options?.include_submitted !== undefined) {
     params.include_submitted = options.include_submitted
   }
+  if (options?.q) {
+    params.q = options.q
+  }
+  if (options?.page) {
+    params.page = options.page
+  }
+  if (options?.limit) {
+    params.limit = options.limit
+  }
 
-  const { data } = await http.get('/plans/indicators', {
-    params
-  })
-  return data
+  if (options?.page || options?.limit) {
+    const { data } = await http.get('/plans/indicators', { params })
+    return data
+  }
+
+  return fetchAllPaginated('/plans/indicators', params)
 }
 
 export async function savePlanIndicator(indicatorId, year, payload) {
@@ -67,10 +78,12 @@ export async function fetchPlanReports(year, options = {}) {
     params.submitted_by = options.submitted_by
   }
 
-  const { data } = await http.get('/plans/reports', {
-    params
-  })
-  return data
+  if (options?.page || options?.limit) {
+    const { data } = await http.get('/plans/reports', { params })
+    return data
+  }
+
+  return fetchAllPaginated('/plans/reports', params)
 }
 
 export async function reviewPlanReport(reportId, payload) {

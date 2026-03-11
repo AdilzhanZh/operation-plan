@@ -142,7 +142,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		return
 	}
 
-	year, err := resolveCurrentPlanYear(c.Query("year"))
+	year, _, err := parseYear(c.Query("year"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
