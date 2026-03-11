@@ -190,11 +190,30 @@ const rows = computed(() => {
 async function loadYears() {
   const response = await fetchPlanYears()
   const currentYear = new Date().getFullYear()
-  const sourceYears = Array.isArray(response.years) ? response.years : []
-  const currentYearRows = sourceYears.filter((year) => Number(year) === currentYear)
+  const normalizedYears = Array.isArray(response.years)
+    ? response.years
+        .map((year) => Number(year))
+        .filter((year) => Number.isInteger(year))
+        .sort((a, b) => a - b)
+    : []
 
-  years.value = currentYearRows.length > 0 ? currentYearRows : [currentYear]
-  selectedYear.value = String(currentYear)
+  years.value = normalizedYears
+
+  if (normalizedYears.length === 0) {
+    selectedYear.value = ''
+    return
+  }
+
+  const currentSelection = Number(selectedYear.value)
+  if (Number.isInteger(currentSelection) && normalizedYears.includes(currentSelection)) {
+    return
+  }
+
+  const preferredYear = normalizedYears.includes(currentYear)
+    ? currentYear
+    : normalizedYears[normalizedYears.length - 1]
+
+  selectedYear.value = String(preferredYear)
 }
 
 async function loadRows() {
