@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -36,12 +37,16 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-type planningPeriodListResponse struct {
-	Items []model.PlanningPeriodIndicator `json:"items"`
+type listMeta struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
 }
 
-type rowScanner interface {
-	Scan(dest ...any) error
+type planningPeriodListResponse struct {
+	Items []model.PlanningPeriodIndicator `json:"items"`
+	Meta  listMeta                        `json:"meta"`
 }
 
 func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
@@ -58,21 +63,55 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 // @Tags planning-period
 // @Produce json
 // @Security BearerAuth
+// @Param q query string false "Search text"
+// @Param page query int false "Page number (default 1)"
+// @Param limit query int false "Items per page (default 20, max 100)"
 // @Success 200 {object} planningPeriodListResponse
 // @Failure 500 {object} errorResponse
 // @Router /planning-period [get]
 func (h *Handler) list(c *gin.Context) {
 	if err := h.ensurePlanningPeriodTable(); err != nil {
-		slog.Error("failed to ensure planning_period_indicators table", "error", err.Error())
+		slog.Error("failed to ensure planning period tables", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})
 		return
 	}
 
-	rows, err := h.db.Query(`
-		SELECT id, target_indicator, unit, year_values, created_at, updated_at
+	page, limit, err := parsePagination(c.Query("page"), c.Query("limit"))
+	if err != nil {
+		c.JSON(400, errorResponse{Error: err.Error()})
+		return
+	}
+	searchQuery := strings.TrimSpace(c.Query("q"))
+
+	args := make([]any, 0, 2)
+	where := []string{"1=1"}
+	if searchQuery != "" {
+		args = append(args, "%"+searchQuery+"%")
+		placeholder := fmt.Sprintf("$%d", len(args))
+		where = append(where, fmt.Sprintf("(target_indicator ILIKE %s OR unit ILIKE %s)", placeholder, placeholder))
+	}
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*)
 		FROM planning_period_indicators
+		WHERE `+whereClause, args...).Scan(&total)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to count planning period data"})
+		return
+	}
+
+	queryArgs := append([]any{}, args...)
+	offset := (page - 1) * limit
+	queryArgs = append(queryArgs, limit, offset)
+	rows, err := h.db.Query(`
+		SELECT id, target_indicator, unit, created_at, updated_at
+		FROM planning_period_indicators
+		WHERE `+whereClause+`
 		ORDER BY id ASC
-	`)
+		LIMIT $`+strconv.Itoa(len(queryArgs)-1)+`
+		OFFSET $`+strconv.Itoa(len(queryArgs)), queryArgs...)
 	if err != nil {
 		slog.Error("failed to load planning period data", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to load planning period data"})
@@ -81,23 +120,55 @@ func (h *Handler) list(c *gin.Context) {
 	defer rows.Close()
 
 	items := make([]model.PlanningPeriodIndicator, 0)
+	ids := make([]int64, 0)
 	for rows.Next() {
-		item, scanErr := scanIndicator(rows)
-		if scanErr != nil {
-			slog.Error("failed to scan planning period row", "error", scanErr.Error())
+		var item model.PlanningPeriodIndicator
+		if err := rows.Scan(
+			&item.ID,
+			&item.TargetIndicator,
+			&item.Unit,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
 			c.JSON(500, errorResponse{Error: "failed to parse planning period data"})
 			return
 		}
+		item.YearValues = map[string]float64{}
 		items = append(items, item)
+		ids = append(ids, int64(item.ID))
 	}
-
 	if err := rows.Err(); err != nil {
-		slog.Error("failed to iterate planning period rows", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to iterate planning period data"})
 		return
 	}
 
-	c.JSON(200, planningPeriodListResponse{Items: items})
+	valuesByIndicator, err := h.loadYearValuesByIndicatorIDs(ids)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load yearly targets"})
+		return
+	}
+
+	for i := range items {
+		yearValues, ok := valuesByIndicator[int64(items[i].ID)]
+		if ok {
+			items[i].YearValues = yearValues
+		}
+	}
+
+	totalPages := total / limit
+	if total%limit != 0 {
+		totalPages++
+	}
+
+	c.JSON(200, planningPeriodListResponse{
+		Items: items,
+		Meta: listMeta{
+			Page:       page,
+			Limit:      limit,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	})
 }
 
 // create godoc
@@ -124,7 +195,6 @@ func (h *Handler) create(c *gin.Context) {
 	}
 
 	if err := h.ensurePlanningPeriodTable(); err != nil {
-		slog.Error("failed to ensure planning_period_indicators table", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})
 		return
 	}
@@ -137,12 +207,10 @@ func (h *Handler) create(c *gin.Context) {
 
 	req.TargetIndicator = strings.TrimSpace(req.TargetIndicator)
 	req.Unit = strings.TrimSpace(req.Unit)
-
 	if req.TargetIndicator == "" || req.Unit == "" {
 		c.JSON(400, errorResponse{Error: "target_indicator and unit are required"})
 		return
 	}
-
 	if err := validateYearValues(req.YearValues); err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
@@ -154,16 +222,37 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 
-	row := h.db.QueryRow(`
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	var id int64
+	err = tx.QueryRow(`
 		INSERT INTO planning_period_indicators (target_indicator, unit, year_values, created_at, updated_at)
 		VALUES ($1, $2, $3::jsonb, NOW(), NOW())
-		RETURNING id, target_indicator, unit, year_values, created_at, updated_at
-	`, req.TargetIndicator, req.Unit, yearValuesJSON)
+		RETURNING id
+	`, req.TargetIndicator, req.Unit, yearValuesJSON).Scan(&id)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to create indicator"})
+		return
+	}
 
-	item, scanErr := scanIndicator(row)
-	if scanErr != nil {
-		slog.Error("failed to create planning period indicator", "error", scanErr.Error())
-		c.JSON(500, errorResponse{Error: "failed to create planning period indicator"})
+	if err := replaceIndicatorYearValuesTx(tx, id, req.YearValues); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to save yearly targets"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to commit indicator"})
+		return
+	}
+
+	item, err := h.fetchIndicatorByID(int(id))
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load created indicator"})
 		return
 	}
 
@@ -196,7 +285,6 @@ func (h *Handler) update(c *gin.Context) {
 	}
 
 	if err := h.ensurePlanningPeriodTable(); err != nil {
-		slog.Error("failed to ensure planning_period_indicators table", "error", err.Error())
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})
 		return
 	}
@@ -224,21 +312,21 @@ func (h *Handler) update(c *gin.Context) {
 	}
 
 	if req.TargetIndicator != nil {
-		value := strings.TrimSpace(*req.TargetIndicator)
-		if value == "" {
+		next := strings.TrimSpace(*req.TargetIndicator)
+		if next == "" {
 			c.JSON(400, errorResponse{Error: "target_indicator cannot be empty"})
 			return
 		}
-		item.TargetIndicator = value
+		item.TargetIndicator = next
 	}
 
 	if req.Unit != nil {
-		value := strings.TrimSpace(*req.Unit)
-		if value == "" {
+		next := strings.TrimSpace(*req.Unit)
+		if next == "" {
 			c.JSON(400, errorResponse{Error: "unit cannot be empty"})
 			return
 		}
-		item.Unit = value
+		item.Unit = next
 	}
 
 	if req.YearValues != nil {
@@ -255,23 +343,41 @@ func (h *Handler) update(c *gin.Context) {
 		return
 	}
 
-	row := h.db.QueryRow(`
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		UPDATE planning_period_indicators
 		SET target_indicator = $1,
 		    unit = $2,
 		    year_values = $3::jsonb,
 		    updated_at = NOW()
 		WHERE id = $4
-		RETURNING id, target_indicator, unit, year_values, created_at, updated_at
 	`, item.TargetIndicator, item.Unit, yearValuesJSON, id)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to update indicator"})
+		return
+	}
 
-	updated, scanErr := scanIndicator(row)
-	if scanErr != nil {
-		if errors.Is(scanErr, sql.ErrNoRows) {
-			c.JSON(404, errorResponse{Error: "indicator not found"})
+	if req.YearValues != nil {
+		if err := replaceIndicatorYearValuesTx(tx, int64(id), item.YearValues); err != nil {
+			c.JSON(500, errorResponse{Error: "failed to update yearly targets"})
 			return
 		}
-		c.JSON(500, errorResponse{Error: "failed to update indicator"})
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to commit update"})
+		return
+	}
+
+	updated, err := h.fetchIndicatorByID(id)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load updated indicator"})
 		return
 	}
 
@@ -279,24 +385,16 @@ func (h *Handler) update(c *gin.Context) {
 }
 
 func (h *Handler) fetchIndicatorByID(id int) (model.PlanningPeriodIndicator, error) {
-	row := h.db.QueryRow(`
-		SELECT id, target_indicator, unit, year_values, created_at, updated_at
+	var item model.PlanningPeriodIndicator
+	err := h.db.QueryRow(`
+		SELECT id, target_indicator, unit, created_at, updated_at
 		FROM planning_period_indicators
 		WHERE id = $1
-	`, id)
-
-	return scanIndicator(row)
-}
-
-func scanIndicator(scanner rowScanner) (model.PlanningPeriodIndicator, error) {
-	var item model.PlanningPeriodIndicator
-	var yearValuesRaw any
-
-	err := scanner.Scan(
+		LIMIT 1
+	`, id).Scan(
 		&item.ID,
 		&item.TargetIndicator,
 		&item.Unit,
-		&yearValuesRaw,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -304,95 +402,178 @@ func scanIndicator(scanner rowScanner) (model.PlanningPeriodIndicator, error) {
 		return model.PlanningPeriodIndicator{}, err
 	}
 
-	parsedValues, parseErr := parseYearValues(yearValuesRaw)
-	if parseErr != nil {
-		return model.PlanningPeriodIndicator{}, parseErr
+	valuesByIndicator, err := h.loadYearValuesByIndicatorIDs([]int64{int64(item.ID)})
+	if err != nil {
+		return model.PlanningPeriodIndicator{}, err
 	}
-
-	if len(parsedValues) == 0 {
+	item.YearValues = valuesByIndicator[int64(item.ID)]
+	if item.YearValues == nil {
 		item.YearValues = map[string]float64{}
-		return item, nil
 	}
 
-	item.YearValues = parsedValues
 	return item, nil
 }
 
-func parseYearValues(raw any) (map[string]float64, error) {
-	if raw == nil {
-		return map[string]float64{}, nil
+func (h *Handler) loadYearValuesByIndicatorIDs(ids []int64) (map[int64]map[string]float64, error) {
+	result := make(map[int64]map[string]float64)
+	if len(ids) == 0 {
+		return result, nil
 	}
 
-	var bytes []byte
-	switch typed := raw.(type) {
-	case []byte:
-		bytes = typed
-	case string:
-		bytes = []byte(typed)
-	default:
-		return nil, fmt.Errorf("unsupported year_values type: %T", raw)
+	placeholders := make([]string, 0, len(ids))
+	args := make([]any, 0, len(ids))
+	for i, id := range ids {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+		args = append(args, id)
 	}
 
-	if len(bytes) == 0 {
-		return map[string]float64{}, nil
+	rows, err := h.db.Query(`
+		SELECT indicator_id, year, planned_value
+		FROM indicator_year_targets
+		WHERE indicator_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY indicator_id ASC, year ASC
+	`, args...)
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
 
-	var generic map[string]any
-	if err := json.Unmarshal(bytes, &generic); err != nil {
+	for rows.Next() {
+		var indicatorID int64
+		var year int
+		var plannedValue float64
+		if err := rows.Scan(&indicatorID, &year, &plannedValue); err != nil {
+			return nil, err
+		}
+
+		values, ok := result[indicatorID]
+		if !ok {
+			values = map[string]float64{}
+			result[indicatorID] = values
+		}
+		values[strconv.Itoa(year)] = plannedValue
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	values := make(map[string]float64, len(generic))
-	for key, value := range generic {
-		number, err := coerceNumber(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for year %s: %w", key, err)
-		}
-		values[key] = number
-	}
-
-	return values, nil
+	return result, nil
 }
 
-func coerceNumber(value any) (float64, error) {
-	switch typed := value.(type) {
-	case float64:
-		return typed, nil
-	case float32:
-		return float64(typed), nil
-	case int:
-		return float64(typed), nil
-	case int64:
-		return float64(typed), nil
-	case json.Number:
-		return typed.Float64()
-	case string:
-		normalized := strings.TrimSpace(strings.ReplaceAll(typed, ",", "."))
-		if normalized == "" {
-			return 0, fmt.Errorf("empty string")
-		}
-		parsed, err := strconv.ParseFloat(normalized, 64)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("unsupported type %T", value)
+func replaceIndicatorYearValuesTx(tx *sql.Tx, indicatorID int64, values map[string]float64) error {
+	if _, err := tx.Exec(`
+		DELETE FROM indicator_year_targets
+		WHERE indicator_id = $1
+	`, indicatorID); err != nil {
+		return err
 	}
+
+	type yearValue struct {
+		year  int
+		value float64
+	}
+	normalized := make([]yearValue, 0, len(values))
+	for key, value := range values {
+		year, err := strconv.Atoi(strings.TrimSpace(key))
+		if err != nil {
+			return fmt.Errorf("invalid year key: %s", key)
+		}
+		normalized = append(normalized, yearValue{year: year, value: value})
+	}
+	sort.Slice(normalized, func(i, j int) bool {
+		return normalized[i].year < normalized[j].year
+	})
+
+	for _, entry := range normalized {
+		if _, err := tx.Exec(`
+			INSERT INTO indicator_year_targets (
+				indicator_id,
+				year,
+				planned_value,
+				created_at,
+				updated_at
+			)
+			VALUES ($1, $2, $3, NOW(), NOW())
+		`, indicatorID, entry.year, entry.value); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (h *Handler) ensurePlanningPeriodTable() error {
-	_, err := h.db.Exec(`
-		CREATE TABLE IF NOT EXISTS planning_period_indicators (
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS planning_period_indicators (
 			id BIGSERIAL PRIMARY KEY,
 			target_indicator TEXT NOT NULL,
 			unit VARCHAR(32) NOT NULL,
 			year_values JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-	`)
-	return err
+		);`,
+		`CREATE TABLE IF NOT EXISTS indicator_year_targets (
+			id BIGSERIAL PRIMARY KEY,
+			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
+			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
+			planned_value NUMERIC(20,6) NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (indicator_id, year)
+		);`,
+		`CREATE INDEX IF NOT EXISTS indicator_year_targets_year_idx ON indicator_year_targets (year);`,
+		`INSERT INTO indicator_year_targets (indicator_id, year, planned_value, created_at, updated_at)
+		SELECT ppi.id,
+		       (kv.key)::INT,
+		       CASE
+		           WHEN kv.value ~ '^-?[0-9]+([.,][0-9]+)?$'
+		           THEN REPLACE(kv.value, ',', '.')::NUMERIC
+		           ELSE 0
+		       END,
+		       NOW(),
+		       NOW()
+		FROM planning_period_indicators ppi
+		CROSS JOIN LATERAL jsonb_each_text(COALESCE(ppi.year_values, '{}'::jsonb)) kv
+		WHERE kv.key ~ '^[0-9]{4}$'
+		ON CONFLICT (indicator_id, year)
+		DO UPDATE SET planned_value = EXCLUDED.planned_value,
+		              updated_at = NOW();`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := h.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func parsePagination(pageRaw, limitRaw string) (int, int, error) {
+	page := 1
+	limit := 20
+
+	if strings.TrimSpace(pageRaw) != "" {
+		parsedPage, err := strconv.Atoi(strings.TrimSpace(pageRaw))
+		if err != nil || parsedPage <= 0 {
+			return 0, 0, fmt.Errorf("page must be positive integer")
+		}
+		page = parsedPage
+	}
+
+	if strings.TrimSpace(limitRaw) != "" {
+		parsedLimit, err := strconv.Atoi(strings.TrimSpace(limitRaw))
+		if err != nil || parsedLimit <= 0 {
+			return 0, 0, fmt.Errorf("limit must be positive integer")
+		}
+		limit = parsedLimit
+	}
+
+	if limit > 100 {
+		limit = 100
+	}
+
+	return page, limit, nil
 }
 
 func validateYearValues(values map[string]float64) error {

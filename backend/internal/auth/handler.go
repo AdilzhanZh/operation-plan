@@ -12,6 +12,7 @@ import (
 	"OperationPlan/internal/middleware"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -86,6 +87,9 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 	if err := h.ensureDefaultAdmin(); err != nil {
 		panic(err)
 	}
+	if err := h.ensurePasswordHashes(); err != nil {
+		panic(err)
+	}
 
 	router.POST("/login", h.login)
 	router.POST("/register", h.register)
@@ -116,9 +120,12 @@ func (h *Handler) login(c *gin.Context) {
 	password := strings.TrimSpace(req.Password)
 
 	var user loginUser
-	var storedPassword string
+	var passwordHash string
+	var legacyPlain string
 	err := h.db.QueryRow(`
-		SELECT id, first_name, last_name, middle_name, full_name, username, role, password_plain
+		SELECT id, first_name, last_name, middle_name, full_name, username, role,
+		       COALESCE(password_hash, ''),
+		       COALESCE(password_plain, '')
 		FROM users
 		WHERE username = $1
 	`, username).Scan(
@@ -129,7 +136,8 @@ func (h *Handler) login(c *gin.Context) {
 		&user.FullName,
 		&user.Username,
 		&user.Role,
-		&storedPassword,
+		&passwordHash,
+		&legacyPlain,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -140,9 +148,21 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 
-	if storedPassword != password {
+	isValidPassword, isLegacyMatch := verifyPassword(passwordHash, legacyPlain, password)
+	if !isValidPassword {
 		c.JSON(401, errorResponse{Error: "invalid username or password"})
 		return
+	}
+
+	if isLegacyMatch {
+		if newHash, hashErr := hashPassword(password); hashErr == nil {
+			_, _ = h.db.Exec(`
+				UPDATE users
+				SET password_hash = $1,
+				    updated_at = NOW()
+				WHERE id = $2
+			`, newHash, user.ID)
+		}
 	}
 
 	token, err := generateToken()
@@ -273,14 +293,20 @@ func (h *Handler) changePassword(c *gin.Context) {
 	newPassword := strings.TrimSpace(req.NewPassword)
 	confirmPassword := strings.TrimSpace(req.ConfirmPassword)
 
-	var storedPassword string
-	err := h.db.QueryRow(`SELECT password_plain FROM users WHERE id = $1`, user.ID).Scan(&storedPassword)
+	var passwordHash string
+	var legacyPlain string
+	err := h.db.QueryRow(`
+		SELECT COALESCE(password_hash, ''), COALESCE(password_plain, '')
+		FROM users
+		WHERE id = $1
+	`, user.ID).Scan(&passwordHash, &legacyPlain)
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to load current password"})
 		return
 	}
 
-	if storedPassword != oldPassword {
+	isValidOldPassword, _ := verifyPassword(passwordHash, legacyPlain, oldPassword)
+	if !isValidOldPassword {
 		c.JSON(400, errorResponse{Error: "old password does not match"})
 		return
 	}
@@ -295,12 +321,19 @@ func (h *Handler) changePassword(c *gin.Context) {
 		return
 	}
 
+	newHash, err := hashPassword(newPassword)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to secure password"})
+		return
+	}
+
 	if _, err := h.db.Exec(`
 		UPDATE users
-		SET password_plain = $1,
+		SET password_hash = $1,
+		    password_plain = '',
 		    updated_at = NOW()
 		WHERE id = $2
-	`, newPassword, user.ID); err != nil {
+	`, newHash, user.ID); err != nil {
 		c.JSON(500, errorResponse{Error: "failed to update password"})
 		return
 	}
@@ -324,6 +357,10 @@ func (h *Handler) createUser(firstName, lastName, middleName, username, password
 	if err := validatePassword(password); err != nil {
 		return loginUser{}, fmt.Errorf("%w: %s", errPasswordValidation, err.Error())
 	}
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return loginUser{}, fmt.Errorf("failed to secure password")
+	}
 
 	role = normalizeRole(role)
 	if role == "" {
@@ -331,7 +368,7 @@ func (h *Handler) createUser(firstName, lastName, middleName, username, password
 	}
 
 	var existingID int64
-	err := h.db.QueryRow(`SELECT id FROM users WHERE username = $1`, username).Scan(&existingID)
+	err = h.db.QueryRow(`SELECT id FROM users WHERE username = $1`, username).Scan(&existingID)
 	if err == nil {
 		return loginUser{}, errUserExists
 	}
@@ -349,14 +386,15 @@ func (h *Handler) createUser(firstName, lastName, middleName, username, password
 			middle_name,
 			full_name,
 			username,
+			password_hash,
 			password_plain,
 			role,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, '', $7, NOW(), NOW())
 		RETURNING id, first_name, last_name, middle_name, full_name, username, role
-	`, firstName, lastName, middleName, fullName, username, password, role).Scan(
+	`, firstName, lastName, middleName, fullName, username, passwordHash, role).Scan(
 		&user.ID,
 		&user.FirstName,
 		&user.LastName,
@@ -416,12 +454,88 @@ func validatePassword(password string) error {
 	return nil
 }
 
+func hashPassword(password string) (string, error) {
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashBytes), nil
+}
+
+func verifyPassword(passwordHash, legacyPlain, candidate string) (bool, bool) {
+	trimmedHash := strings.TrimSpace(passwordHash)
+	if trimmedHash != "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(trimmedHash), []byte(candidate)); err == nil {
+			return true, false
+		}
+		return false, false
+	}
+
+	if strings.TrimSpace(legacyPlain) == candidate && candidate != "" {
+		return true, true
+	}
+
+	return false, false
+}
+
 func generateToken() (string, error) {
 	buffer := make([]byte, 32)
 	if _, err := rand.Read(buffer); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buffer), nil
+}
+
+func (h *Handler) ensurePasswordHashes() error {
+	rows, err := h.db.Query(`
+		SELECT id, COALESCE(password_plain, '')
+		FROM users
+		WHERE COALESCE(TRIM(password_hash), '') = ''
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id       int64
+		password string
+	}
+	toUpdate := make([]candidate, 0)
+
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.password); err != nil {
+			return err
+		}
+		item.password = strings.TrimSpace(item.password)
+		if item.password == "" {
+			continue
+		}
+		toUpdate = append(toUpdate, item)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, item := range toUpdate {
+		passwordHash, err := hashPassword(item.password)
+		if err != nil {
+			return err
+		}
+
+		if _, err := h.db.Exec(`
+			UPDATE users
+			SET password_hash = $1,
+			    password_plain = '',
+			    updated_at = NOW()
+			WHERE id = $2
+		`, passwordHash, item.id); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (h *Handler) ensureUsersTable() error {
@@ -476,13 +590,33 @@ func (h *Handler) ensureUsersTable() error {
 
 func (h *Handler) ensureDefaultAdmin() error {
 	var adminID int64
-	err := h.db.QueryRow(`SELECT id FROM users WHERE username = 'admin' LIMIT 1`).Scan(&adminID)
+	var currentHash string
+	var legacyPlain string
+	err := h.db.QueryRow(`
+		SELECT id, COALESCE(password_hash, ''), COALESCE(password_plain, '')
+		FROM users
+		WHERE username = 'admin'
+		LIMIT 1
+	`).Scan(&adminID, &currentHash, &legacyPlain)
 	if errors.Is(err, sql.ErrNoRows) {
 		_, createErr := h.createUser("System", "Admin", "", "admin", "Admin123", "Admin123", "admin")
 		return createErr
 	}
 	if err != nil {
 		return err
+	}
+
+	newHash := currentHash
+	if strings.TrimSpace(newHash) == "" {
+		sourcePassword := strings.TrimSpace(legacyPlain)
+		if sourcePassword == "" {
+			sourcePassword = "Admin123"
+		}
+		generatedHash, hashErr := hashPassword(sourcePassword)
+		if hashErr != nil {
+			return hashErr
+		}
+		newHash = generatedHash
 	}
 
 	_, err = h.db.Exec(`
@@ -498,9 +632,10 @@ func (h *Handler) ensureDefaultAdmin() error {
 		      )
 		      ELSE full_name
 		    END,
-		    password_plain = 'Admin123',
+		    password_hash = $2,
+		    password_plain = '',
 		    updated_at = NOW()
 		WHERE id = $1
-	`, adminID)
+	`, adminID, newHash)
 	return err
 }

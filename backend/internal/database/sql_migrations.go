@@ -158,6 +158,289 @@ func RunSQLMigrations(db *sql.DB) error {
 		      FROM plan_indicator_report_files rf
 		      WHERE rf.report_id = pir.id
 		  );`,
+		`CREATE TABLE IF NOT EXISTS indicator_year_targets (
+			id BIGSERIAL PRIMARY KEY,
+			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
+			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
+			planned_value NUMERIC(20,6) NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (indicator_id, year)
+		);`,
+		`CREATE INDEX IF NOT EXISTS indicator_year_targets_year_idx ON indicator_year_targets (year);`,
+		`INSERT INTO indicator_year_targets (indicator_id, year, planned_value, created_at, updated_at)
+		SELECT ppi.id,
+		       (kv.key)::INT,
+		       CASE
+		           WHEN kv.value ~ '^-?[0-9]+([.,][0-9]+)?$'
+		           THEN REPLACE(kv.value, ',', '.')::NUMERIC
+		           ELSE 0
+		       END,
+		       NOW(),
+		       NOW()
+		FROM planning_period_indicators ppi
+		CROSS JOIN LATERAL jsonb_each_text(COALESCE(ppi.year_values, '{}'::jsonb)) kv
+		WHERE kv.key ~ '^[0-9]{4}$'
+		ON CONFLICT (indicator_id, year)
+		DO UPDATE SET planned_value = EXCLUDED.planned_value,
+		              updated_at = NOW();`,
+		`CREATE TABLE IF NOT EXISTS plan_items (
+			id BIGSERIAL PRIMARY KEY,
+			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
+			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
+			development_indicator TEXT NOT NULL DEFAULT '',
+			activities TEXT NOT NULL DEFAULT '',
+			execution_deadline TEXT NOT NULL DEFAULT '',
+			status VARCHAR(32) NOT NULL DEFAULT 'draft',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (indicator_id, year)
+		);`,
+		`CREATE INDEX IF NOT EXISTS plan_items_year_idx ON plan_items (year);`,
+		`CREATE INDEX IF NOT EXISTS plan_items_status_idx ON plan_items (status);`,
+		`CREATE TABLE IF NOT EXISTS plan_item_responsibles (
+			plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
+			user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (plan_item_id, user_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS plan_item_responsibles_user_idx ON plan_item_responsibles (user_id);`,
+		`INSERT INTO plan_items (
+			indicator_id,
+			year,
+			development_indicator,
+			activities,
+			execution_deadline,
+			status,
+			created_at,
+			updated_at
+		)
+		SELECT pid.planning_period_indicator_id,
+		       pid.year,
+		       COALESCE(pid.development_indicator, ''),
+		       COALESCE(pid.activities, ''),
+		       COALESCE(pid.execution_deadline, ''),
+		       'draft',
+		       COALESCE(pid.created_at, NOW()),
+		       COALESCE(pid.updated_at, NOW())
+		FROM plan_indicator_details pid
+		ON CONFLICT (indicator_id, year)
+		DO UPDATE SET
+			development_indicator = EXCLUDED.development_indicator,
+			activities = EXCLUDED.activities,
+			execution_deadline = EXCLUDED.execution_deadline,
+			updated_at = NOW();`,
+		`INSERT INTO plan_items (
+			indicator_id,
+			year,
+			development_indicator,
+			activities,
+			execution_deadline,
+			status,
+			created_at,
+			updated_at
+		)
+		SELECT pir.planning_period_indicator_id,
+		       pir.year,
+		       COALESCE(NULLIF(TRIM(pid.development_indicator), ''), ppi.target_indicator, ''),
+		       COALESCE(pid.activities, ''),
+		       COALESCE(pid.execution_deadline, ''),
+		       'draft',
+		       COALESCE(pir.created_at, NOW()),
+		       COALESCE(pir.updated_at, NOW())
+		FROM plan_indicator_reports pir
+		LEFT JOIN plan_indicator_details pid
+		       ON pid.planning_period_indicator_id = pir.planning_period_indicator_id
+		      AND pid.year = pir.year
+		LEFT JOIN planning_period_indicators ppi
+		       ON ppi.id = pir.planning_period_indicator_id
+		ON CONFLICT (indicator_id, year)
+		DO NOTHING;`,
+		`INSERT INTO plan_item_responsibles (plan_item_id, user_id, created_at)
+		SELECT pi.id,
+		       elem.value::BIGINT,
+		       NOW()
+		FROM plan_indicator_details pid
+		JOIN plan_items pi
+		  ON pi.indicator_id = pid.planning_period_indicator_id
+		 AND pi.year = pid.year
+		CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(pid.responsible_user_ids, '[]'::jsonb)) elem(value)
+		WHERE elem.value ~ '^[0-9]+$'
+		ON CONFLICT (plan_item_id, user_id) DO NOTHING;`,
+		`INSERT INTO plan_item_responsibles (plan_item_id, user_id, created_at)
+		SELECT pi.id,
+		       pir.submitted_by,
+		       COALESCE(pir.created_at, NOW())
+		FROM plan_indicator_reports pir
+		JOIN users u
+		  ON u.id = pir.submitted_by
+		 AND u.role = 'prorector'
+		JOIN plan_items pi
+		  ON pi.indicator_id = pir.planning_period_indicator_id
+		 AND pi.year = pir.year
+		ON CONFLICT (plan_item_id, user_id) DO NOTHING;`,
+		`CREATE TABLE IF NOT EXISTS report_submissions (
+			id BIGSERIAL PRIMARY KEY,
+			plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
+			submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			report_text TEXT NOT NULL DEFAULT '',
+			status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			review_note TEXT NOT NULL DEFAULT '',
+			approval_formula TEXT NOT NULL DEFAULT '',
+			reviewed_by BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
+			submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			reviewed_at TIMESTAMPTZ NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (plan_item_id, submitted_by),
+			CHECK (status IN ('pending', 'completed', 'rejected'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
+		`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
+		`UPDATE report_submissions
+		SET status = 'completed'
+		WHERE status = 'approved';`,
+		`DO $$
+		BEGIN
+		  IF EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'report_submissions_status_check'
+		  ) THEN
+		    ALTER TABLE report_submissions
+		      DROP CONSTRAINT report_submissions_status_check;
+		  END IF;
+		END $$;`,
+		`DO $$
+		BEGIN
+		  IF NOT EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'report_submissions_status_check'
+		  ) THEN
+		    ALTER TABLE report_submissions
+		      ADD CONSTRAINT report_submissions_status_check
+		      CHECK (status IN ('pending', 'completed', 'rejected'));
+		  END IF;
+		END $$;`,
+		`INSERT INTO report_submissions (
+			plan_item_id,
+			submitted_by,
+			report_text,
+			status,
+			review_note,
+			approval_formula,
+			reviewed_by,
+			submitted_at,
+			reviewed_at,
+			created_at,
+			updated_at
+		)
+		SELECT pi.id,
+		       pir.submitted_by,
+		       COALESCE(pir.report_text, ''),
+		       CASE
+		           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) IN ('completed', 'approved')
+		           THEN 'completed'
+		           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) = 'rejected'
+		           THEN 'rejected'
+		           ELSE 'pending'
+		       END,
+		       COALESCE(pir.review_note, ''),
+		       COALESCE(pir.approval_formula, ''),
+		       pir.reviewed_by,
+		       COALESCE(pir.submitted_at, NOW()),
+		       pir.reviewed_at,
+		       COALESCE(pir.created_at, NOW()),
+		       COALESCE(pir.updated_at, NOW())
+		FROM plan_indicator_reports pir
+		JOIN plan_items pi
+		  ON pi.indicator_id = pir.planning_period_indicator_id
+		 AND pi.year = pir.year
+		ON CONFLICT (plan_item_id, submitted_by)
+		DO UPDATE SET
+			report_text = EXCLUDED.report_text,
+			status = EXCLUDED.status,
+			review_note = EXCLUDED.review_note,
+			approval_formula = EXCLUDED.approval_formula,
+			reviewed_by = EXCLUDED.reviewed_by,
+			submitted_at = EXCLUDED.submitted_at,
+			reviewed_at = EXCLUDED.reviewed_at,
+			updated_at = NOW();`,
+		`CREATE TABLE IF NOT EXISTS report_files (
+			id BIGSERIAL PRIMARY KEY,
+			submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
+			file_name VARCHAR(255) NOT NULL,
+			storage_key TEXT NOT NULL,
+			mime_type VARCHAR(255) NOT NULL DEFAULT '',
+			file_size BIGINT NOT NULL DEFAULT 0,
+			sha256 VARCHAR(64) NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS report_files_submission_idx ON report_files (submission_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS report_files_submission_storage_uindex ON report_files (submission_id, storage_key);`,
+		`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
+		SELECT rs.id,
+		       COALESCE(NULLIF(TRIM(prf.file_name), ''), CONCAT('file_', prf.id)),
+		       COALESCE(prf.storage_path, ''),
+		       '',
+		       0,
+		       '',
+		       COALESCE(prf.created_at, NOW())
+		FROM plan_indicator_report_files prf
+		JOIN plan_indicator_reports pir
+		  ON pir.id = prf.report_id
+		JOIN plan_items pi
+		  ON pi.indicator_id = pir.planning_period_indicator_id
+		 AND pi.year = pir.year
+		JOIN report_submissions rs
+		  ON rs.plan_item_id = pi.id
+		 AND rs.submitted_by = pir.submitted_by
+		WHERE COALESCE(prf.storage_path, '') <> ''
+		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
+		`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
+		SELECT rs.id,
+		       CASE
+		           WHEN COALESCE(NULLIF(TRIM(pir.file_name), ''), '') <> '' THEN pir.file_name
+		           ELSE CONCAT('legacy_file_', pir.id)
+		       END,
+		       pir.file_path,
+		       '',
+		       0,
+		       '',
+		       NOW()
+		FROM plan_indicator_reports pir
+		JOIN plan_items pi
+		  ON pi.indicator_id = pir.planning_period_indicator_id
+		 AND pi.year = pir.year
+		JOIN report_submissions rs
+		  ON rs.plan_item_id = pi.id
+		 AND rs.submitted_by = pir.submitted_by
+		WHERE COALESCE(TRIM(pir.file_path), '') <> ''
+		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
+		`CREATE TABLE IF NOT EXISTS report_status_history (
+			id BIGSERIAL PRIMARY KEY,
+			submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
+			from_status VARCHAR(32) NOT NULL DEFAULT '',
+			to_status VARCHAR(32) NOT NULL,
+			actor_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
+			note TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS report_status_history_submission_idx ON report_status_history (submission_id, created_at DESC);`,
+		`INSERT INTO report_status_history (submission_id, from_status, to_status, actor_id, note, created_at)
+		SELECT rs.id,
+		       '',
+		       rs.status,
+		       rs.submitted_by,
+		       'initial migration',
+		       COALESCE(rs.submitted_at, NOW())
+		FROM report_submissions rs
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM report_status_history rsh
+			WHERE rsh.submission_id = rs.id
+		);`,
 	}
 
 	for _, stmt := range statements {

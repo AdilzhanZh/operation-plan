@@ -49,6 +49,18 @@ export async function fetchPlanReports(year, options = {}) {
   if (options?.status) {
     params.status = options.status
   }
+  if (options?.q) {
+    params.q = options.q
+  }
+  if (options?.page) {
+    params.page = options.page
+  }
+  if (options?.limit) {
+    params.limit = options.limit
+  }
+  if (options?.submitted_by) {
+    params.submitted_by = options.submitted_by
+  }
 
   const { data } = await http.get('/plans/reports', {
     params

@@ -131,7 +131,7 @@ onMounted(() => {
               <th>Толық аты</th>
               <th>Username</th>
               <th>Role</th>
-              <th>Password</th>
+              <th>Password (hidden)</th>
               <th>Құрылған күні</th>
             </tr>
           </thead>

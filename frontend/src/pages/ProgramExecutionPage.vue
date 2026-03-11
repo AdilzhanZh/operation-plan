@@ -82,11 +82,14 @@ function formatDate(value) {
 
 function statusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
-  if (normalized === 'approved') {
-    return 'Approved'
+  if (normalized === 'completed' || normalized === 'approved') {
+    return 'Completed'
   }
   if (normalized === 'rejected') {
     return 'Rejected'
+  }
+  if (normalized === 'overdue') {
+    return 'Overdue'
   }
   return 'Pending'
 }
@@ -109,6 +112,8 @@ async function loadRows() {
   const options = {}
   if (isProrector.value) {
     options.status = isRejectedCategory.value ? 'rejected' : 'pending'
+  } else if (isAdmin.value) {
+    options.status = 'pending,rejected'
   }
 
   const response = await fetchPlanReports(selectedYear.value, options)
@@ -789,6 +794,11 @@ onMounted(() => {
 .status-pending {
   background: #fef3c7;
   color: #92400e;
+}
+
+.status-completed {
+  background: #dcfce7;
+  color: #166534;
 }
 
 .status-approved {
