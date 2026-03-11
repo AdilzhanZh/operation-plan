@@ -8,19 +8,28 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const navigation = [
-  { name: 'Dashboard', to: { name: 'dashboard' } },
-  { name: 'Profile', to: { name: 'profile' } },
-  { name: 'Users', to: { name: 'users' }, roles: ['admin'] },
-  { name: 'Plans', to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
-  { name: 'Planning Period', to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
-  { name: 'Выполнение Программы Развития', to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
+  { name: 'Dashboard', description: 'Обзор статусов и сроков', to: { name: 'dashboard' } },
+  { name: 'Profile', description: 'Аккаунт и настройки доступа', to: { name: 'profile' } },
+  { name: 'Users', description: 'Пользователи системы', to: { name: 'users' }, roles: ['admin'] },
+  { name: 'Plans', description: 'Рабочие планы по текущему году', to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
+  { name: 'Planning Period', description: 'Целевые показатели по годам', to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
+  { name: 'Program Execution', description: 'Отчеты и согласование', to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
 ]
+
+const roleLabels = {
+  admin: 'Administrator',
+  prorector: 'Prorector',
+  viewer: 'Viewer'
+}
 
 const isAuthPage = computed(() => route.name === 'login' || route.name === 'register')
 const visibleNavigation = computed(() => {
   const currentRole = authStore.user?.role
   return navigation.filter((item) => !item.roles?.length || item.roles.includes(currentRole))
 })
+
+const currentUserName = computed(() => authStore.user?.full_name || authStore.user?.username || 'Oper Plan User')
+const currentUserRole = computed(() => roleLabels[authStore.user?.role] ?? authStore.user?.role ?? 'Workspace member')
 
 function logout() {
   authStore.logout()
@@ -33,27 +42,42 @@ function logout() {
     <RouterView />
   </div>
 
-  <div v-else class="app-layout">
-    <aside class="sidebar">
-      <h1 class="brand">Oper Plan</h1>
-      <p class="subtitle">Korkyt Ata University</p>
+  <div v-else class="app-shell">
+    <aside class="app-sidebar">
+      <div class="sidebar-top">
+        <span class="sidebar-chip">Operational Planning Platform</span>
+        <h1 class="brand">Oper Plan</h1>
+        <p class="subtitle">Korkyt Ata University workspace for planning, execution and review.</p>
+      </div>
 
-      <nav class="menu">
+      <section class="sidebar-profile">
+        <span class="sidebar-label">Текущий аккаунт</span>
+        <strong>{{ currentUserName }}</strong>
+        <span>{{ currentUserRole }}</span>
+      </section>
+
+      <nav class="sidebar-nav" aria-label="Основная навигация">
         <RouterLink
           v-for="item in visibleNavigation"
           :key="item.name"
           :to="item.to"
           class="menu-item"
         >
-          {{ item.name }}
+          <span class="menu-item-title">{{ item.name }}</span>
+          <span class="menu-item-text">{{ item.description }}</span>
         </RouterLink>
       </nav>
 
-      <button type="button" class="logout" @click="logout">Logout</button>
+      <div class="sidebar-footer">
+        <p class="sidebar-note">Единая среда для сроков, ответственных и контрольных отчетов.</p>
+        <button type="button" class="btn btn-secondary sidebar-logout" @click="logout">Выйти</button>
+      </div>
     </aside>
 
-    <main class="content">
-      <RouterView />
+    <main class="app-main">
+      <div class="app-main-inner">
+        <RouterView />
+      </div>
     </main>
   </div>
 </template>

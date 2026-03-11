@@ -8,20 +8,21 @@ const props = defineProps({
   }
 })
 
-const normalized = computed(() => props.status.toLowerCase())
+const normalized = computed(() => String(props.status ?? '').toLowerCase())
 
 const labels = {
-  created: 'Created',
-  in_progress: 'In Progress',
-  on_review: 'On Review',
-  completed: 'Completed',
-  overdue: 'Overdue',
-  returned: 'Returned'
+  created: 'Создан',
+  in_progress: 'В работе',
+  on_review: 'На проверке',
+  completed: 'Завершен',
+  overdue: 'Просрочен',
+  returned: 'Возвращен'
 }
 </script>
 
 <template>
   <span class="badge" :class="`badge-${normalized}`">
+    <span class="badge-dot" aria-hidden="true"></span>
     {{ labels[normalized] ?? status }}
   </span>
 </template>
@@ -30,39 +31,55 @@ const labels = {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.15rem 0.55rem;
+  gap: 0.42rem;
+  padding: 0.35rem 0.75rem;
   border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+
+.badge-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .badge-created {
-  background: #e5e7eb;
-  color: #374151;
+  background: rgba(68, 94, 116, 0.1);
+  border-color: rgba(68, 94, 116, 0.16);
+  color: #445e74;
 }
 
 .badge-in_progress {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(194, 106, 51, 0.12);
+  border-color: rgba(194, 106, 51, 0.18);
+  color: #9b4b24;
 }
 
 .badge-on_review {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(27, 111, 168, 0.12);
+  border-color: rgba(27, 111, 168, 0.18);
+  color: #1b6fa8;
 }
 
 .badge-completed {
-  background: #dcfce7;
-  color: #166534;
+  background: rgba(29, 122, 91, 0.12);
+  border-color: rgba(29, 122, 91, 0.18);
+  color: #1d7a5b;
 }
 
 .badge-overdue {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(183, 75, 58, 0.12);
+  border-color: rgba(183, 75, 58, 0.18);
+  color: #b74b3a;
 }
 
 .badge-returned {
-  background: #ffe4e6;
-  color: #9f1239;
+  background: rgba(165, 60, 92, 0.12);
+  border-color: rgba(165, 60, 92, 0.18);
+  color: #a53c5c;
 }
 </style>
