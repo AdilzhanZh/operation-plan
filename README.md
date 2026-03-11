@@ -44,6 +44,23 @@ npm run dev
 - Backend API: `http://localhost:8080`
 - Swagger: `http://localhost:8080/swagger/index.html`
 
+## Test Users (Console Seed)
+
+Төмендегі команда 4 тест қолданушыны құрады/жаңартады: 1 admin, 1 viewer, 2 prorector.
+
+```bash
+cat backend/sql/seed_test_users.sql | docker exec -i postgres-db-op psql -U admin -d oper-plan
+```
+
+Құрылған логиндер мен парольдер:
+
+| Role | Username | Password |
+| --- | --- | --- |
+| admin | `admin_test` | `AdminTest1` |
+| viewer | `viewer_test` | `ViewerTest1` |
+| prorector | `prorector_aitimov` | `ProrectorA1` |
+| prorector | `prorector_toktarov` | `ProrectorB1` |
+
 Толық нұсқаулықтар:
 - `backend/README.md`
 - `frontend/README.md`

@@ -80,6 +80,23 @@ go run ./cmd/api
 - API health: `http://localhost:8080/healthz`
 - Swagger UI: `http://localhost:8080/swagger/index.html`
 
+## Test Users Seed (Console)
+
+Тест үшін 4 қолданушыны (1 admin, 1 viewer, 2 prorector) бір командамен құру:
+
+```bash
+cat sql/seed_test_users.sql | docker exec -i postgres-db-op psql -U admin -d oper-plan
+```
+
+Логин/пароль:
+
+| Role | Username | Password |
+| --- | --- | --- |
+| admin | `admin_test` | `AdminTest1` |
+| viewer | `viewer_test` | `ViewerTest1` |
+| prorector | `prorector_aitimov` | `ProrectorA1` |
+| prorector | `prorector_toktarov` | `ProrectorB1` |
+
 ## PostgreSQL (Docker)
 
 Backend now connects to PostgreSQL on startup and runs `AutoMigrate` for:

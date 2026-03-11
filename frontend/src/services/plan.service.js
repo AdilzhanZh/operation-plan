@@ -5,9 +5,14 @@ export async function fetchPlanYears() {
   return data
 }
 
-export async function fetchPlanIndicators(year) {
+export async function fetchPlanIndicators(year, options = {}) {
+  const params = { year }
+  if (options?.include_submitted !== undefined) {
+    params.include_submitted = options.include_submitted
+  }
+
   const { data } = await http.get('/plans/indicators', {
-    params: { year }
+    params
   })
   return data
 }

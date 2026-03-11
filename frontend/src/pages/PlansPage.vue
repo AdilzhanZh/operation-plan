@@ -96,7 +96,7 @@ async function loadRows() {
     ...item,
     execution_start_date: item.execution_start_date ?? '',
     execution_end_date: item.execution_end_date ?? '',
-    schedule_status: item.schedule_status ?? 'no_deadline',
+    schedule_status: item.schedule_status ?? 'not_filled',
     measurement_unit: item.measurement_unit ?? item.unit ?? '',
     responsible_user_ids: Array.isArray(item.responsible_user_ids)
       ? item.responsible_user_ids.map((value) => Number(value))
@@ -204,6 +204,9 @@ function stopCountdownTicker() {
 
 function scheduleStatusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'not_filled') {
+    return 'Толық толтырылмаған'
+  }
   if (normalized === 'in_progress') {
     return 'Уақыт өтіп жатыр'
   }
@@ -269,7 +272,7 @@ async function saveRow(row) {
       ...saved,
       execution_start_date: saved?.execution_start_date ?? '',
       execution_end_date: saved?.execution_end_date ?? '',
-      schedule_status: saved?.schedule_status ?? 'no_deadline',
+      schedule_status: saved?.schedule_status ?? 'not_filled',
       responsible_user_ids: Array.isArray(saved?.responsible_user_ids)
         ? saved.responsible_user_ids.map((value) => Number(value))
         : []
@@ -729,6 +732,10 @@ onBeforeUnmount(() => {
 
 .schedule-upcoming {
   color: #1d4ed8;
+}
+
+.schedule-not_filled {
+  color: #9a3412;
 }
 
 .schedule-no_deadline {

@@ -153,6 +153,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		return
 	}
 	searchQuery := strings.TrimSpace(c.Query("q"))
+	includeSubmitted := strings.EqualFold(strings.TrimSpace(c.Query("include_submitted")), "true")
 
 	if err := h.ensurePlanningPeriodTable(); err != nil {
 		c.JSON(500, errorResponse{Error: "failed to prepare planning period storage"})
@@ -193,14 +194,16 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 				  AND pir_self.user_id = %s
 			)
 		`, ph))
-		where = append(where, fmt.Sprintf(`
-			NOT EXISTS (
-				SELECT 1
-				FROM report_submissions rs
-				WHERE rs.plan_item_id = pi.id
-				  AND rs.submitted_by = %s
-			)
-		`, ph))
+		if !includeSubmitted {
+			where = append(where, fmt.Sprintf(`
+				NOT EXISTS (
+					SELECT 1
+					FROM report_submissions rs
+					WHERE rs.plan_item_id = pi.id
+					  AND rs.submitted_by = %s
+				)
+			`, ph))
+		}
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -234,7 +237,15 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		       COALESCE(TO_CHAR(pi.execution_start_date, 'YYYY-MM-DD'), ''),
 		       COALESCE(TO_CHAR(pi.execution_end_date, 'YYYY-MM-DD'), ''),
 		       CASE
-		           WHEN pi.execution_start_date IS NULL OR pi.execution_end_date IS NULL THEN 'no_deadline'
+		           WHEN COALESCE(TRIM(pi.activities), '') = ''
+		                OR pi.execution_start_date IS NULL
+		                OR pi.execution_end_date IS NULL
+		                OR NOT EXISTS (
+		                    SELECT 1
+		                    FROM plan_item_responsibles res_chk
+		                    WHERE res_chk.plan_item_id = pi.id
+		                )
+		           THEN 'not_filled'
 		           WHEN CURRENT_DATE < pi.execution_start_date THEN 'upcoming'
 		           WHEN CURRENT_DATE > pi.execution_end_date THEN 'overdue'
 		           ELSE 'in_progress'
@@ -258,7 +269,10 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		           WHERE rs.plan_item_id = pi.id
 		       ), ''),
 		       COALESCE((
-		           SELECT TO_CHAR(MAX(rs.submitted_at), 'YYYY-MM-DD"T"HH24:MI:SSOF')
+		           SELECT TO_CHAR(
+		               COALESCE(MAX(rs.submitted_at), MAX(rs.updated_at), MAX(rs.created_at)),
+		               'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'
+		           )
 		           FROM report_submissions rs
 		           WHERE rs.plan_item_id = pi.id
 		       ), ''),
@@ -769,7 +783,15 @@ func (h *Handler) fetchPlanIndicatorRow(indicatorID int, year int, yearKey strin
 		       COALESCE(TO_CHAR(pi.execution_start_date, 'YYYY-MM-DD'), ''),
 		       COALESCE(TO_CHAR(pi.execution_end_date, 'YYYY-MM-DD'), ''),
 		       CASE
-		           WHEN pi.execution_start_date IS NULL OR pi.execution_end_date IS NULL THEN 'no_deadline'
+		           WHEN COALESCE(TRIM(pi.activities), '') = ''
+		                OR pi.execution_start_date IS NULL
+		                OR pi.execution_end_date IS NULL
+		                OR NOT EXISTS (
+		                    SELECT 1
+		                    FROM plan_item_responsibles res_chk
+		                    WHERE res_chk.plan_item_id = pi.id
+		                )
+		           THEN 'not_filled'
 		           WHEN CURRENT_DATE < pi.execution_start_date THEN 'upcoming'
 		           WHEN CURRENT_DATE > pi.execution_end_date THEN 'overdue'
 		           ELSE 'in_progress'

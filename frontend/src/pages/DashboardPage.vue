@@ -2,31 +2,45 @@
 import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { fetchPlanIndicators, fetchPlanYears } from '../services/plan.service'
+import { useAuthStore } from '../store/auth'
 
 const years = ref([])
 const selectedYear = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const allRows = ref([])
+const authStore = useAuthStore()
+const isProrector = computed(() => authStore.user?.role === 'prorector')
 
 const activeCard = ref('total')
 const stats = ref({
   total: 0,
   completed: 0,
+  not_filled: 0,
   in_progress: 0,
   overdue: 0
 })
 
 const hasYears = computed(() => years.value.length > 0)
 
-const cardConfig = [
-  { key: 'total', label: 'Total Tasks' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'in_progress', label: 'In Progress' },
-  { key: 'overdue', label: 'Overdue' }
-]
+const cardConfig = computed(() => {
+  if (isProrector.value) {
+    return [
+      { key: 'total', label: 'Total Tasks' },
+      { key: 'completed', label: 'Completed' },
+      { key: 'overdue', label: 'Overdue' }
+    ]
+  }
+  return [
+    { key: 'total', label: 'Total Tasks' },
+    { key: 'completed', label: 'Completed' },
+    { key: 'not_filled', label: 'Not Filled' },
+    { key: 'in_progress', label: 'In Progress' },
+    { key: 'overdue', label: 'Overdue' }
+  ]
+})
 
-const cards = computed(() => cardConfig.map((card) => ({
+const cards = computed(() => cardConfig.value.map((card) => ({
   ...card,
   value: stats.value[card.key] ?? 0
 })))
@@ -37,6 +51,8 @@ const listTitle = computed(() => {
       return 'Completed индикаторлар тізімі'
     case 'in_progress':
       return 'In Progress индикаторлар тізімі'
+    case 'not_filled':
+      return 'Not Filled индикаторлар тізімі'
     case 'overdue':
       return 'Overdue индикаторлар тізімі'
     default:
@@ -51,6 +67,9 @@ function statusLabel(status) {
   }
   if (normalized === 'overdue') {
     return 'Overdue'
+  }
+  if (normalized === 'not_filled') {
+    return 'Not Filled'
   }
   return 'In Progress'
 }
@@ -72,9 +91,19 @@ function formatPlannedValue(value, unit) {
 }
 
 function formatDate(value) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
+  const raw = String(value ?? '').trim()
+  if (!raw) {
     return '—'
+  }
+
+  let normalized = raw
+  normalized = normalized.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/, '$1T$2')
+  normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')
+  normalized = normalized.replace(/([+-]\d{2})$/, '$1:00')
+
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) {
+    return raw
   }
   return date.toLocaleString('ru-RU')
 }
@@ -85,6 +114,8 @@ function statusFilterByCard(cardKey) {
       return 'completed'
     case 'in_progress':
       return 'in_progress'
+    case 'not_filled':
+      return 'not_filled'
     case 'overdue':
       return 'overdue'
     default:
@@ -99,6 +130,9 @@ function deriveDashboardStatus(row) {
   }
 
   const scheduleStatus = String(row?.schedule_status ?? '').toLowerCase()
+  if (scheduleStatus === 'not_filled' || scheduleStatus === 'no_deadline') {
+    return isProrector.value ? 'in_progress' : 'not_filled'
+  }
   if (scheduleStatus === 'overdue') {
     return 'overdue'
   }
@@ -110,6 +144,7 @@ function recalculateStats() {
   const next = {
     total: allRows.value.length,
     completed: 0,
+    not_filled: 0,
     in_progress: 0,
     overdue: 0
   }
@@ -122,6 +157,10 @@ function recalculateStats() {
     }
     if (status === 'overdue') {
       next.overdue += 1
+      continue
+    }
+    if (status === 'not_filled') {
+      next.not_filled += 1
       continue
     }
     next.in_progress += 1
@@ -155,13 +194,16 @@ async function loadRows() {
     stats.value = {
       total: 0,
       completed: 0,
+      not_filled: 0,
       in_progress: 0,
       overdue: 0
     }
     return
   }
 
-  const response = await fetchPlanIndicators(selectedYear.value)
+  const response = await fetchPlanIndicators(selectedYear.value, {
+    include_submitted: isProrector.value
+  })
   allRows.value = (response.items ?? []).map((item) => ({
     ...item,
     dashboard_status: deriveDashboardStatus(item)
@@ -417,6 +459,11 @@ onMounted(() => {
 .status-in_progress {
   background: #fef3c7;
   color: #92400e;
+}
+
+.status-not_filled {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .status-overdue {
