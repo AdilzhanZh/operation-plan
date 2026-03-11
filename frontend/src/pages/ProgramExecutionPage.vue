@@ -388,11 +388,12 @@ onMounted(() => {
     <PageHeader
       title="ВЫПОЛНЕНИЕ ПРОГРАММЫ РАЗВИТИЯ"
       :subtitle="pageSubtitle"
+      eyebrow="Reports"
     />
 
-    <div class="toolbar">
-      <label class="year-picker">
-        <span>Год:</span>
+    <div class="panel panel-strong toolbar-panel execution-toolbar">
+      <label class="execution-year-picker">
+        <span>Год</span>
         <select :value="selectedYear" :disabled="loading || !hasYears" @change="handleYearChange">
           <option v-if="!hasYears" value="">Нет годов</option>
           <option v-for="year in years" :key="year" :value="String(year)">
@@ -401,9 +402,9 @@ onMounted(() => {
         </select>
       </label>
 
-      <div v-if="isProrector" class="prorector-categories">
+      <div v-if="isProrector" class="execution-categories">
         <button
-          class="category-btn"
+          class="btn btn-ghost execution-category-btn"
           :class="{ 'is-active': prorectorCategory === 'pending' }"
           type="button"
           @click="handleProrectorCategoryChange('pending')"
@@ -411,7 +412,7 @@ onMounted(() => {
           На проверке
         </button>
         <button
-          class="category-btn"
+          class="btn btn-ghost execution-category-btn"
           :class="{ 'is-active': prorectorCategory === 'rejected' }"
           type="button"
           @click="handleProrectorCategoryChange('rejected')"
@@ -419,163 +420,182 @@ onMounted(() => {
           Rejected
         </button>
       </div>
+
+      <div class="execution-summary-card">
+        <span class="kicker">Rows</span>
+        <strong>{{ rows.length }}</strong>
+      </div>
     </div>
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
-    <div v-if="loading" class="state-box">Загрузка...</div>
-    <div v-else-if="!hasYears" class="state-box">
-      Әзірге жылдар жоқ.
-    </div>
-    <div v-else-if="rows.length === 0" class="state-box">
-      <template v-if="isProrector">
-        <template v-if="isRejectedCategory">
-          {{ selectedYear }} жылына Rejected отчеттар жоқ.
+    <section class="panel panel-strong execution-table-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Отчеты и решения</h3>
+          <p class="panel-subtitle">Файлы, текст отчета, формулы проверки и причина отклонения видны в одном потоке.</p>
+        </div>
+        <span class="kicker">{{ selectedYear || 'No year' }}</span>
+      </div>
+
+      <div v-if="loading" class="empty-state">Загрузка...</div>
+      <div v-else-if="!hasYears" class="empty-state">
+        Әзірге жылдар жоқ.
+      </div>
+      <div v-else-if="rows.length === 0" class="empty-state">
+        <template v-if="isProrector">
+          <template v-if="isRejectedCategory">
+            {{ selectedYear }} жылына Rejected отчеттар жоқ.
+          </template>
+          <template v-else>
+            {{ selectedYear }} жылына На проверке категориясында отчеттар жоқ.
+          </template>
         </template>
         <template v-else>
-          {{ selectedYear }} жылына На проверке категориясында отчеттар жоқ.
+          {{ selectedYear }} жылына жіберілген отчеттар жоқ.
         </template>
-      </template>
-      <template v-else>
-        {{ selectedYear }} жылына жіберілген отчеттар жоқ.
-      </template>
-    </div>
+      </div>
 
-    <div v-else-if="isAdmin" class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>№</th>
-            <th>Целевой индикатор</th>
-            <th>Мән</th>
-            <th>Срок исполнения</th>
-            <th>Ответственные</th>
-            <th>Выполнение индикатора</th>
-            <th>Статус</th>
-            <th>Решение</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, index) in rows" :key="row.id">
-            <td class="number-cell">{{ index + 1 }}</td>
-            <td>{{ row.development_indicator || '—' }}</td>
-            <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
-            <td>{{ row.execution_deadline || '—' }}</td>
-            <td>{{ row.responsible || '—' }}</td>
-            <td>
-              <p class="report-text">{{ row.report_text || '—' }}</p>
-              <div class="files-list">
-                <button
-                  v-for="file in row.files"
-                  :key="file.id"
-                  class="file-download-btn"
-                  type="button"
-                  @click="handleDownload(file)"
-                >
-                  {{ file.file_name }}
-                </button>
-                <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
-              </div>
-              <p class="meta">
-                Отправил: {{ row.submitted_by_name || row.submitted_by }} • {{ formatDate(row.submitted_at) }}
-              </p>
-              <p v-if="row.reviewed_by_name" class="meta">
-                Проверил: {{ row.reviewed_by_name }} • {{ formatDate(row.reviewed_at) }}
-              </p>
-              <p v-if="row.approval_formula" class="formula-text">
-                Формула: {{ row.approval_formula }}
-              </p>
-              <p v-if="row.review_note" class="reject-note">
-                Причина: {{ row.review_note }}
-              </p>
-            </td>
-            <td>
-              <span class="status-pill" :class="`status-${row.status}`">
-                {{ statusLabel(row.status) }}
-              </span>
-            </td>
-            <td class="actions-cell">
-              <template v-if="canReviewRow(row)">
-                <button class="action-btn approve-btn" type="button" @click="openApproveModal(row)">
-                  Қабылдау
-                </button>
-                <button class="action-btn reject-btn" type="button" @click="openRejectModal(row)">
-                  Қабылдамау
-                </button>
-              </template>
-              <span v-else class="muted">Қаралған</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <div v-else-if="isAdmin" class="table-wrap">
+        <table class="table execution-table">
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>Целевой индикатор</th>
+              <th>Мән</th>
+              <th>Срок исполнения</th>
+              <th>Ответственные</th>
+              <th>Выполнение индикатора</th>
+              <th>Статус</th>
+              <th>Решение</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in rows" :key="row.id">
+              <td class="number-cell">{{ index + 1 }}</td>
+              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
+              <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
+              <td>{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty">{{ row.responsible || '—' }}</td>
+              <td>
+                <div class="report-card">
+                  <p class="report-text">{{ row.report_text || '—' }}</p>
+                  <div class="files-list">
+                    <button
+                      v-for="file in row.files"
+                      :key="file.id"
+                      class="btn btn-ghost report-file-chip"
+                      type="button"
+                      @click="handleDownload(file)"
+                    >
+                      {{ file.file_name }}
+                    </button>
+                    <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
+                  </div>
+                  <p class="meta">
+                    Отправил: {{ row.submitted_by_name || row.submitted_by }} • {{ formatDate(row.submitted_at) }}
+                  </p>
+                  <p v-if="row.reviewed_by_name" class="meta">
+                    Проверил: {{ row.reviewed_by_name }} • {{ formatDate(row.reviewed_at) }}
+                  </p>
+                  <p v-if="row.approval_formula" class="formula-text text-pretty">
+                    Формула: {{ row.approval_formula }}
+                  </p>
+                  <p v-if="row.review_note" class="reject-note text-pretty">
+                    Причина: {{ row.review_note }}
+                  </p>
+                </div>
+              </td>
+              <td>
+                <span class="status-pill" :class="`status-${row.status}`">
+                  {{ statusLabel(row.status) }}
+                </span>
+              </td>
+              <td class="actions-cell">
+                <template v-if="canReviewRow(row)">
+                  <button class="btn btn-primary action-btn" type="button" @click="openApproveModal(row)">
+                    Қабылдау
+                  </button>
+                  <button class="btn btn-danger action-btn" type="button" @click="openRejectModal(row)">
+                    Қабылдамау
+                  </button>
+                </template>
+                <span v-else class="muted">Қаралған</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-    <div v-else class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>№</th>
-            <th>Целевой индикатор</th>
-            <th>Мән</th>
-            <th>Срок исполнения</th>
-            <th>Ответственные</th>
-            <th v-if="isRejectedCategory">Причина Rejected</th>
-            <th v-else>Статус</th>
-            <th>Алдыңғы отчет</th>
-            <th>Құжаттар</th>
-            <th>Әрекет</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, index) in rows" :key="row.id">
-            <td class="number-cell">{{ index + 1 }}</td>
-            <td>{{ row.development_indicator || '—' }}</td>
-            <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
-            <td>{{ row.execution_deadline || '—' }}</td>
-            <td>{{ row.responsible || '—' }}</td>
-            <td v-if="isRejectedCategory">{{ row.review_note || '—' }}</td>
-            <td v-else>
-              <span class="status-pill status-pending">На проверке</span>
-            </td>
-            <td>
-              <p class="report-text">{{ row.report_text || '—' }}</p>
-              <p class="meta">
-                Отправлено: {{ formatDate(row.submitted_at) }}
-              </p>
-            </td>
-            <td>
-              <div class="files-list">
+      <div v-else class="table-wrap">
+        <table class="table execution-table execution-table-prorector">
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>Целевой индикатор</th>
+              <th>Мән</th>
+              <th>Срок исполнения</th>
+              <th>Ответственные</th>
+              <th v-if="isRejectedCategory">Причина Rejected</th>
+              <th v-else>Статус</th>
+              <th>Алдыңғы отчет</th>
+              <th>Құжаттар</th>
+              <th>Әрекет</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in rows" :key="row.id">
+              <td class="number-cell">{{ index + 1 }}</td>
+              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
+              <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
+              <td>{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty">{{ row.responsible || '—' }}</td>
+              <td v-if="isRejectedCategory" class="text-pretty">{{ row.review_note || '—' }}</td>
+              <td v-else>
+                <span class="status-pill status-pending">На проверке</span>
+              </td>
+              <td>
+                <div class="report-card">
+                  <p class="report-text">{{ row.report_text || '—' }}</p>
+                  <p class="meta">
+                    Отправлено: {{ formatDate(row.submitted_at) }}
+                  </p>
+                </div>
+              </td>
+              <td>
+                <div class="files-list">
+                  <button
+                    v-for="file in row.files"
+                    :key="file.id"
+                    class="btn btn-ghost report-file-chip"
+                    type="button"
+                    @click="handleDownload(file)"
+                  >
+                    {{ file.file_name }}
+                  </button>
+                  <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
+                </div>
+              </td>
+              <td>
                 <button
-                  v-for="file in row.files"
-                  :key="file.id"
-                  class="file-download-btn"
+                  v-if="isRejectedCategory"
+                  class="btn btn-primary action-btn"
                   type="button"
-                  @click="handleDownload(file)"
+                  @click="openResubmitModal(row)"
                 >
-                  {{ file.file_name }}
+                  Исправить и отправить
                 </button>
-                <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
-              </div>
-            </td>
-            <td>
-              <button
-                v-if="isRejectedCategory"
-                class="action-btn resend-btn"
-                type="button"
-                @click="openResubmitModal(row)"
-              >
-                Исправить и отправить
-              </button>
-              <span v-else class="muted">Күтілуде</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+                <span v-else class="muted">Күтілуде</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <div v-if="reviewModalOpen" class="modal-backdrop" @click.self="closeReviewModal">
-      <div class="modal-card">
+      <div class="modal-card execution-modal">
         <h3 class="modal-title">
           {{ reviewMode === 'approve' ? 'Отчетты қабылдау' : 'Отчетты қабылдамау' }}
         </h3>
@@ -601,11 +621,11 @@ onMounted(() => {
         </label>
 
         <div class="modal-actions">
-          <button class="modal-btn modal-btn-secondary" type="button" @click="closeReviewModal">
+          <button class="btn btn-ghost" type="button" @click="closeReviewModal">
             Бас тарту
           </button>
           <button
-            class="modal-btn modal-btn-primary"
+            class="btn btn-primary"
             type="button"
             :disabled="reviewSaving"
             @click="submitReviewDecision"
@@ -617,7 +637,7 @@ onMounted(() => {
     </div>
 
     <div v-if="resubmitModalOpen" class="modal-backdrop" @click.self="closeResubmitModal">
-      <div class="modal-card">
+      <div class="modal-card execution-modal">
         <h3 class="modal-title">Rejected отчетты қайта жіберу</h3>
         <p class="modal-subtitle">
           {{ resubmitRow?.development_indicator || 'Индикатор' }}
@@ -648,11 +668,11 @@ onMounted(() => {
         </p>
 
         <div class="modal-actions">
-          <button class="modal-btn modal-btn-secondary" type="button" @click="closeResubmitModal">
+          <button class="btn btn-ghost" type="button" @click="closeResubmitModal">
             Бас тарту
           </button>
           <button
-            class="modal-btn modal-btn-primary"
+            class="btn btn-primary"
             type="button"
             :disabled="resubmitSending"
             @click="submitResubmittedReport"
@@ -666,85 +686,54 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.execution-page {
-  display: grid;
-  gap: 0.9rem;
+.execution-toolbar {
+  justify-content: space-between;
 }
 
-.toolbar {
+.execution-year-picker {
+  min-width: 13rem;
+}
+
+.execution-categories {
   display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 0.8rem;
+  flex-wrap: wrap;
+  gap: 0.7rem;
 }
 
-.year-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.92rem;
+.execution-category-btn.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fffdf9;
+  border-color: transparent;
 }
 
-.year-picker select {
-  min-width: 140px;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #ffffff;
+.execution-summary-card {
+  display: grid;
+  gap: 0.35rem;
 }
 
-.prorector-categories {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
+.execution-summary-card strong {
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
 }
 
-.category-btn {
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  padding: 0.38rem 0.8rem;
-  background: #ffffff;
-  color: #334155;
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
+.execution-table-card {
+  padding: 1.2rem;
 }
 
-.category-btn.is-active {
-  border-color: #0f766e;
-  background: #0f766e;
-  color: #ffffff;
-}
-
-.table-wrap {
-  overflow-x: auto;
-  border: 1px solid #d8e0ea;
-  border-radius: 10px;
-  background: #ffffff;
-}
-
-.table {
-  width: 100%;
-  min-width: 1320px;
-  border-collapse: collapse;
-}
-
-.table th,
-.table td {
-  border: 1px solid #d8e0ea;
-  padding: 0.6rem;
-  vertical-align: top;
-}
-
-.table thead th {
-  background: #f4f6f8;
-  text-align: center;
-  font-weight: 700;
+.execution-table {
+  min-width: 1340px;
 }
 
 .number-cell {
+  width: 4rem;
   text-align: center;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.report-card {
+  display: grid;
+  gap: 0.55rem;
 }
 
 .report-text {
@@ -753,220 +742,72 @@ onMounted(() => {
 }
 
 .meta {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  color: #64748b;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .formula-text {
-  margin: 0.4rem 0 0;
-  font-size: 0.82rem;
-  color: #1d4ed8;
-  white-space: pre-wrap;
+  margin: 0;
+  color: #1b6fa8;
+  font-size: 0.84rem;
 }
 
 .reject-note {
-  margin: 0.4rem 0 0;
-  font-size: 0.82rem;
-  color: #b91c1c;
-  white-space: pre-wrap;
+  margin: 0;
+  color: #a63f32;
+  font-size: 0.84rem;
 }
 
 .files-list {
-  margin-top: 0.45rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
-.file-download-btn {
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 0.3rem 0.55rem;
-  background: #f8fafc;
-  color: #0f172a;
+.report-file-chip {
+  min-height: auto;
+  padding: 0.45rem 0.8rem;
   font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.muted {
-  color: #64748b;
-  font-size: 0.82rem;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 92px;
-  border-radius: 999px;
-  padding: 0.3rem 0.65rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.status-pending {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-completed {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-approved {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-rejected {
-  background: #fee2e2;
-  color: #991b1b;
 }
 
 .actions-cell {
-  min-width: 160px;
+  min-width: 12rem;
 }
 
 .action-btn {
   width: 100%;
-  border-radius: 7px;
-  padding: 0.45rem 0.6rem;
-  font-weight: 700;
-  cursor: pointer;
+  justify-content: center;
 }
 
 .action-btn + .action-btn {
-  margin-top: 0.45rem;
+  margin-top: 0.65rem;
 }
 
-.approve-btn {
-  border: 1px solid #166534;
-  background: #166534;
-  color: #ffffff;
-}
-
-.reject-btn {
-  border: 1px solid #b91c1c;
-  background: #ffffff;
-  color: #b91c1c;
-}
-
-.resend-btn {
-  border: 1px solid #0f766e;
-  background: #0f766e;
-  color: #ffffff;
-}
-
-.message {
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  font-size: 0.92rem;
-}
-
-.message-error {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.message-success {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.state-box {
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #f8fafc;
-  padding: 1rem;
-  color: #475569;
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: grid;
-  place-items: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modal-card {
-  width: min(700px, 100%);
-  border-radius: 12px;
-  background: #ffffff;
-  border: 1px solid #d8e0ea;
-  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.2);
-  padding: 1rem;
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 1.08rem;
-}
-
-.modal-subtitle {
-  margin: 0.4rem 0 0.7rem;
-  color: #475569;
-  font-size: 0.9rem;
+.execution-modal {
+  width: min(720px, 100%);
 }
 
 .modal-label {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 0.6rem;
-  font-size: 0.9rem;
+  gap: 0.45rem;
+  margin-top: 1rem;
 }
 
 .modal-textarea,
 .file-input {
   width: 100%;
-  border: 1px solid #c8d2de;
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-  font: inherit;
-  background: #fff;
 }
 
 .file-info {
-  margin: 0.3rem 0 0;
-  font-size: 0.82rem;
-  color: #475569;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
-.modal-actions {
-  margin-top: 0.85rem;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.55rem;
-}
-
-.modal-btn {
-  border-radius: 7px;
-  padding: 0.45rem 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.modal-btn-secondary {
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a;
-}
-
-.modal-btn-primary {
-  border: 1px solid #0f766e;
-  background: #0f766e;
-  color: #ffffff;
-}
-
-@media (max-width: 920px) {
-  .modal-card {
-    max-height: 90vh;
-    overflow-y: auto;
+@media (max-width: 1024px) {
+  .execution-toolbar {
+    align-items: stretch;
   }
 }
 </style>

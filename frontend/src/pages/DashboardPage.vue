@@ -23,6 +23,14 @@ const stats = ref({
 
 const hasYears = computed(() => years.value.length > 0)
 
+const cardMeta = {
+  total: 'Полный пул индикаторов выбранного года',
+  completed: 'Позиции с утвержденным завершением',
+  not_filled: 'Индикаторы без заполненного графика или отчета',
+  in_progress: 'Активные задачи в пределах срока',
+  overdue: 'Точки, требующие немедленного контроля'
+}
+
 const cardConfig = computed(() => {
   if (isProrector.value) {
     return [
@@ -42,7 +50,8 @@ const cardConfig = computed(() => {
 
 const cards = computed(() => cardConfig.value.map((card) => ({
   ...card,
-  value: stats.value[card.key] ?? 0
+  value: stats.value[card.key] ?? 0,
+  meta: cardMeta[card.key] ?? ''
 })))
 
 const listTitle = computed(() => {
@@ -245,7 +254,7 @@ async function handleYearChange(event) {
   }
 }
 
-async function handleCardClick(cardKey) {
+function handleCardClick(cardKey) {
   if (activeCard.value === cardKey) {
     return
   }
@@ -262,12 +271,13 @@ onMounted(() => {
   <section class="dashboard-page">
     <PageHeader
       title="Dashboard"
-      subtitle="Current execution overview for active operational plan"
+      subtitle="Ключевой обзор по индикаторам, срокам исполнения и последним отправленным отчетам за активный год"
+      eyebrow="Overview"
     />
 
-    <div class="toolbar">
-      <label class="year-picker">
-        <span>Год:</span>
+    <div class="panel panel-strong toolbar-panel dashboard-toolbar">
+      <label class="dashboard-filter">
+        <span>Год</span>
         <select :value="selectedYear" :disabled="loading || !hasYears" @change="handleYearChange">
           <option v-if="!hasYears" value="">Нет годов</option>
           <option v-for="year in years" :key="year" :value="String(year)">
@@ -275,32 +285,44 @@ onMounted(() => {
           </option>
         </select>
       </label>
+
+      <div class="dashboard-toolbar-note">
+        <span class="kicker">Focus</span>
+        <p>Выберите карточку ниже, чтобы быстро сфокусировать список по нужному статусу.</p>
+      </div>
     </div>
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
 
-    <div class="cards">
+    <div class="dashboard-stats">
       <button
         v-for="card in cards"
         :key="card.key"
-        class="card-button"
-        :class="{ 'is-active': activeCard === card.key }"
         type="button"
+        class="unstyled-button dashboard-stat-card"
+        :class="{ 'is-active': activeCard === card.key }"
         @click="handleCardClick(card.key)"
       >
-        <h3>{{ card.label }}</h3>
-        <p>{{ card.value }}</p>
+        <span class="dashboard-stat-label">{{ card.label }}</span>
+        <strong>{{ card.value }}</strong>
+        <p>{{ card.meta }}</p>
       </button>
     </div>
 
-    <section class="list-section">
-      <h2>{{ listTitle }}</h2>
+    <section class="panel panel-strong dashboard-list-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">{{ listTitle }}</h3>
+          <p class="panel-subtitle">Список автоматически перестраивается по выбранной карточке статуса.</p>
+        </div>
+        <span class="kicker">{{ rows.length }} rows</span>
+      </div>
 
-      <div v-if="loading" class="state-box">Загрузка...</div>
-      <div v-else-if="!hasYears" class="state-box">Әзірге жылдық дерек жоқ</div>
-      <div v-else-if="rows.length === 0" class="state-box">Тізім бос</div>
+      <div v-if="loading" class="empty-state">Загрузка...</div>
+      <div v-else-if="!hasYears" class="empty-state">Әзірге жылдық дерек жоқ</div>
+      <div v-else-if="rows.length === 0" class="empty-state">Тізім бос</div>
       <div v-else class="table-wrap">
-        <table class="table">
+        <table class="table dashboard-table">
           <thead>
             <tr>
               <th>№</th>
@@ -315,10 +337,10 @@ onMounted(() => {
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.indicator_id">
               <td class="number-cell">{{ index + 1 }}</td>
-              <td>{{ row.development_indicator || '—' }}</td>
+              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
               <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
               <td>{{ row.execution_deadline || '—' }}</td>
-              <td>{{ row.responsible || '—' }}</td>
+              <td class="text-pretty">{{ row.responsible || '—' }}</td>
               <td>
                 <span class="status-pill" :class="`status-${row.dashboard_status}`">
                   {{ statusLabel(row.dashboard_status) }}
@@ -334,160 +356,91 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.dashboard-page {
+.dashboard-toolbar {
+  justify-content: space-between;
+}
+
+.dashboard-filter {
+  min-width: 13rem;
+}
+
+.dashboard-toolbar-note {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.45rem;
+  max-width: 26rem;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.dashboard-toolbar-note p {
+  margin: 0;
+  color: var(--muted);
 }
 
-.year-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.92rem;
-}
-
-.year-picker select {
-  min-width: 140px;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.cards {
+.dashboard-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.9rem;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
-.card-button {
+.dashboard-stat-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.25rem;
+  border-radius: 24px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background:
+    radial-gradient(circle at top right, rgba(17, 120, 111, 0.1), transparent 36%),
+    linear-gradient(145deg, rgba(255, 251, 245, 0.96), rgba(255, 255, 255, 0.92));
+  box-shadow: var(--shadow-soft);
   text-align: left;
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 1rem;
-  border: 1px solid #e2e8f0;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.card-button.is-active {
-  border-color: #0f766e;
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+.dashboard-stat-card:hover {
+  transform: translateY(-2px);
 }
 
-.card-button h3 {
-  margin: 0;
-  font-size: 0.92rem;
-  color: #64748b;
+.dashboard-stat-card.is-active {
+  border-color: rgba(17, 120, 111, 0.32);
+  box-shadow: 0 22px 40px rgba(17, 120, 111, 0.14);
 }
 
-.card-button p {
-  margin: 0.5rem 0 0;
-  font-size: 1.9rem;
+.dashboard-stat-label {
+  color: var(--muted);
+  font-size: 0.8rem;
   font-weight: 700;
-  color: #0f172a;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.list-section {
-  display: grid;
-  gap: 0.55rem;
+.dashboard-stat-card strong {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
 }
 
-.list-section h2 {
+.dashboard-stat-card p {
   margin: 0;
-  font-size: 1.08rem;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
-.table-wrap {
-  overflow-x: auto;
-  border: 1px solid #d8e0ea;
-  border-radius: 10px;
-  background: #ffffff;
+.dashboard-list-card {
+  padding: 1.2rem;
 }
 
-.table {
-  width: 100%;
-  min-width: 940px;
-  border-collapse: collapse;
-}
-
-.table th,
-.table td {
-  border: 1px solid #d8e0ea;
-  padding: 0.6rem;
-  vertical-align: top;
-}
-
-.table thead th {
-  background: #f4f6f8;
-  text-align: center;
-  font-weight: 700;
+.dashboard-table {
+  min-width: 980px;
 }
 
 .number-cell {
+  width: 4rem;
   text-align: center;
   font-weight: 700;
 }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 92px;
-  border-radius: 999px;
-  padding: 0.3rem 0.65rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.status-pending {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-completed {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-in_progress {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-not_filled {
-  background: #ffedd5;
-  color: #9a3412;
-}
-
-.status-overdue {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.message {
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  font-size: 0.92rem;
-}
-
-.message-error {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.state-box {
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #f8fafc;
-  padding: 1rem;
-  color: #475569;
+@media (max-width: 900px) {
+  .dashboard-toolbar {
+    align-items: stretch;
+  }
 }
 </style>

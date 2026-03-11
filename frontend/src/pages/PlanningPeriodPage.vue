@@ -458,59 +458,78 @@ onMounted(loadRows)
 </script>
 
 <template>
-  <section>
+  <section class="planning-page page">
     <PageHeader
       title="Плановый период по годам"
-      subtitle="Алдымен көрсеткішті жасаңыз, содан кейін кесте автоматты түрде пайда болады"
+      subtitle="Управление целевыми индикаторами по годам, импортом Excel и диапазонной фильтрацией в едином рабочем экране"
+      eyebrow="Planning"
     />
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
-    <div class="card filter-card">
-      <h3>Жылдық период бойынша фильтр</h3>
-      <div class="period-filter">
-        <label>
-          Бастапқы жыл
-          <input v-model="periodFromYear" type="number" min="2000" max="2100" placeholder="2023" />
-        </label>
+    <div class="planning-top-grid" :class="{ 'single-column': !isAdmin }">
+      <section class="panel panel-strong planning-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">Диапазон годов</h3>
+            <p class="panel-subtitle">Оставьте поля пустыми, чтобы видеть весь плановый период сразу.</p>
+          </div>
+          <span class="kicker">Filter</span>
+        </div>
 
-        <label>
-          Соңғы жыл
-          <input v-model="periodToYear" type="number" min="2000" max="2100" placeholder="2026" />
-        </label>
+        <div class="planning-filter-grid">
+          <label>
+            Бастапқы жыл
+            <input v-model="periodFromYear" type="number" min="2000" max="2100" placeholder="2023" />
+          </label>
 
-        <button type="button" class="ghost" @click="clearPeriodFilter">
-          Фильтрді тазалау
-        </button>
-      </div>
+          <label>
+            Соңғы жыл
+            <input v-model="periodToYear" type="number" min="2000" max="2100" placeholder="2026" />
+          </label>
+
+          <button type="button" class="btn btn-ghost planning-inline-btn" @click="clearPeriodFilter">
+            Фильтрді тазалау
+          </button>
+        </div>
+      </section>
+
+      <section v-if="isAdmin" class="panel panel-warning planning-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">Excel импорт</h3>
+            <p class="panel-subtitle">Формат файла: `.xlsx`, обязательные колонки: индикатор, единица измерения и годы.</p>
+          </div>
+          <span class="kicker">Import</span>
+        </div>
+
+        <div class="planning-import-grid">
+          <input
+            :key="importInputKey"
+            type="file"
+            accept=".xlsx"
+            @change="handleImportFileChange"
+          />
+          <button type="button" class="btn btn-accent planning-inline-btn" :disabled="importing" @click="importFromExcel">
+            {{ importing ? 'Импортталуда...' : 'Импорт жасау' }}
+          </button>
+        </div>
+
+        <p v-if="importFileName" class="planning-note">Таңдалған файл: {{ importFileName }}</p>
+      </section>
     </div>
 
-    <div v-if="isAdmin" class="card import-card">
-      <h3>Excel импорт</h3>
-      <p class="import-note">
-        Файл форматы: <strong>.xlsx</strong>. Бағандар: «Целевой индикатор», «ед. изм.» және жылдар (2023, 2024, ...).
-      </p>
-
-      <div class="import-controls">
-        <input
-          :key="importInputKey"
-          type="file"
-          accept=".xlsx"
-          @change="handleImportFileChange"
-        />
-        <button type="button" class="primary import-btn" :disabled="importing" @click="importFromExcel">
-          {{ importing ? 'Импортталуда...' : 'Импорт жасау' }}
-        </button>
+    <section v-if="isAdmin" class="panel panel-accent planning-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Новый показатель</h3>
+          <p class="panel-subtitle">Сначала задайте формулировку и единицу измерения, затем заполните значения по годам.</p>
+        </div>
+        <span class="kicker">Create</span>
       </div>
 
-      <p v-if="importFileName" class="import-file-name">Таңдалған файл: {{ importFileName }}</p>
-    </div>
-
-    <div v-if="isAdmin" class="card">
-      <h3>Добавить показатель</h3>
-
-      <div class="main-fields">
+      <div class="planning-main-fields">
         <label>
           Целевой индикатор
           <textarea
@@ -530,8 +549,8 @@ onMounted(loadRows)
         </label>
       </div>
 
-      <div class="year-editor">
-        <div class="year-row" v-for="yearRow in createForm.years" :key="`create-${yearRow.localId}`">
+      <div class="planning-year-editor">
+        <div class="planning-year-row" v-for="yearRow in createForm.years" :key="`create-${yearRow.localId}`">
           <label>
             Жыл
             <input v-model="yearRow.year" type="number" min="2000" max="2100" placeholder="2023" />
@@ -544,7 +563,7 @@ onMounted(loadRows)
 
           <button
             type="button"
-            class="ghost danger"
+            class="btn btn-danger planning-row-btn"
             @click="removeCreateYear(yearRow.localId)"
             :disabled="createForm.years.length <= 1"
           >
@@ -555,64 +574,83 @@ onMounted(loadRows)
         <button
           v-if="canAddCreateYear"
           type="button"
-          class="ghost"
+          class="btn btn-ghost"
           @click="addCreateYear"
         >
           + Добавить год
         </button>
       </div>
 
-      <button type="button" class="primary" :disabled="creating" @click="createRow">
-        {{ creating ? 'Сақталуда...' : 'Создать строку' }}
-      </button>
-    </div>
+      <div class="planning-actions">
+        <button type="button" class="btn btn-primary" :disabled="creating" @click="createRow">
+          {{ creating ? 'Сақталуда...' : 'Создать строку' }}
+        </button>
+      </div>
+    </section>
 
-    <p v-else class="readonly-note">
+    <p v-else class="message message-info">
       Бұл бөлім prorector үшін тек оқу режимінде қолжетімді.
     </p>
 
-    <div v-if="loading" class="loading">Жүктелуде...</div>
-
-    <template v-else>
-      <div v-if="hasFilteredRows" class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Целевой индикатор</th>
-              <th>ед. изм.</th>
-              <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
-              <th v-if="isAdmin">Әрекет</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            <tr v-for="row in filteredRows" :key="row.id">
-              <td>{{ row.target_indicator }}</td>
-              <td>{{ row.unit }}</td>
-              <td v-for="year in tableYears" :key="`${row.id}-${year}`">
-                {{ row.year_values?.[year] ?? '—' }}
-              </td>
-              <td v-if="isAdmin">
-                <button type="button" class="ghost" @click="startEdit(row)">Өзгерту</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <section class="panel panel-strong planning-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Показатели планового периода</h3>
+          <p class="panel-subtitle">Таблица показывает только те годы, которые попадают в текущий диапазон фильтра.</p>
+        </div>
+        <span class="kicker">{{ filteredRows.length }} rows</span>
       </div>
 
-      <p v-else-if="hasRows" class="empty-note">
-        Таңдалған период бойынша индикатор табылмады.
-      </p>
+      <div v-if="loading" class="empty-state">Жүктелуде...</div>
+      <template v-else>
+        <div v-if="hasFilteredRows" class="table-wrap">
+          <table class="table planning-table">
+            <thead>
+              <tr>
+                <th>Целевой индикатор</th>
+                <th>ед. изм.</th>
+                <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
+                <th v-if="isAdmin">Әрекет</th>
+              </tr>
+            </thead>
 
-      <p v-else class="empty-note">
-        Кесте әзірге бос. Бірінші жолды қосқаннан кейін кесте осы жерде көрінеді.
-      </p>
-    </template>
+            <tbody>
+              <tr v-for="row in filteredRows" :key="row.id">
+                <td class="text-pretty">{{ row.target_indicator }}</td>
+                <td>{{ row.unit }}</td>
+                <td v-for="year in tableYears" :key="`${row.id}-${year}`">
+                  {{ row.year_values?.[year] ?? '—' }}
+                </td>
+                <td v-if="isAdmin">
+                  <button type="button" class="btn btn-ghost planning-table-btn" @click="startEdit(row)">
+                    Өзгерту
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-    <div v-if="isAdmin && editingId" class="card edit-card">
-      <h3>Көрсеткішті өзгерту</h3>
+        <div v-else-if="hasRows" class="empty-state">
+          Таңдалған период бойынша индикатор табылмады.
+        </div>
 
-      <div class="main-fields">
+        <div v-else class="empty-state">
+          Кесте әзірге бос. Бірінші жолды қосқаннан кейін кесте осы жерде көрінеді.
+        </div>
+      </template>
+    </section>
+
+    <section v-if="isAdmin && editingId" class="panel panel-warning planning-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Редактирование показателя</h3>
+          <p class="panel-subtitle">Изменения применяются к выбранной строке и сразу обновляют общую таблицу.</p>
+        </div>
+        <span class="kicker">Edit</span>
+      </div>
+
+      <div class="planning-main-fields">
         <label>
           Целевой индикатор
           <textarea v-model="editForm.targetIndicator" rows="3" />
@@ -624,8 +662,8 @@ onMounted(loadRows)
         </label>
       </div>
 
-      <div class="year-editor">
-        <div class="year-row" v-for="yearRow in editForm.years" :key="`edit-${yearRow.localId}`">
+      <div class="planning-year-editor">
+        <div class="planning-year-row" v-for="yearRow in editForm.years" :key="`edit-${yearRow.localId}`">
           <label>
             Жыл
             <input v-model="yearRow.year" type="number" min="2000" max="2100" />
@@ -638,7 +676,7 @@ onMounted(loadRows)
 
           <button
             type="button"
-            class="ghost danger"
+            class="btn btn-danger planning-row-btn"
             @click="removeEditYear(yearRow.localId)"
             :disabled="editForm.years.length <= 1"
           >
@@ -649,233 +687,102 @@ onMounted(loadRows)
         <button
           v-if="canAddEditYear"
           type="button"
-          class="ghost"
+          class="btn btn-ghost"
           @click="addEditYear"
         >
           + Добавить год
         </button>
       </div>
 
-      <div class="edit-actions">
-        <button type="button" class="primary" :disabled="saving" @click="saveEdit">
+      <div class="planning-actions">
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="saveEdit">
           {{ saving ? 'Сақталуда...' : 'Сақтау' }}
         </button>
-        <button type="button" class="ghost" @click="cancelEdit">Болдырмау</button>
+        <button type="button" class="btn btn-ghost" @click="cancelEdit">Болдырмау</button>
       </div>
-    </div>
+    </section>
   </section>
 </template>
 
 <style scoped>
-.card {
-  margin-bottom: 1rem;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1rem;
-}
-
-.import-card {
-  border-color: #bfdbfe;
-  background: #f8fbff;
-}
-
-.import-note {
-  margin: 0 0 0.75rem;
-  color: #334155;
-  font-size: 0.88rem;
-}
-
-.import-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-}
-
-.import-btn {
-  margin-top: 0;
-}
-
-.import-file-name {
-  margin: 0.6rem 0 0;
-  font-size: 0.85rem;
-  color: #475569;
-}
-
-.filter-card {
-  border-color: #d6e8ff;
-  background: #f8fbff;
-}
-
-.period-filter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.65rem;
-}
-
-.period-filter label {
-  min-width: 170px;
-}
-
-h3 {
-  margin: 0 0 0.9rem;
-}
-
-.message {
-  margin: 0.5rem 0 1rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 8px;
-  font-size: 0.92rem;
-}
-
-.message-error {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
-}
-
-.message-success {
-  background: #dcfce7;
-  color: #166534;
-  border: 1px solid #bbf7d0;
-}
-
-.readonly-note {
-  margin: 0 0 1rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid #dbeafe;
-  background: #eff6ff;
-  color: #1e3a8a;
-}
-
-.main-fields {
+.planning-top-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+}
+
+.planning-top-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.planning-card {
+  padding: 1.2rem;
+}
+
+.planning-filter-grid,
+.planning-import-grid {
+  display: grid;
   gap: 0.9rem;
-}
-
-label {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.88rem;
-}
-
-input,
-textarea,
-button {
-  font: inherit;
-}
-
-input,
-textarea {
-  width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-}
-
-.year-editor {
-  margin-top: 0.9rem;
-  display: grid;
-  gap: 0.7rem;
-}
-
-.year-row {
-  display: grid;
-  gap: 0.7rem;
-  grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
 }
 
-.primary,
-.ghost {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.45rem 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
+.planning-inline-btn {
+  justify-content: center;
 }
 
-.primary {
-  margin-top: 0.9rem;
-  background: #0f172a;
-  color: #f8fafc;
+.planning-note {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
-.ghost {
-  background: #ffffff;
-  color: #0f172a;
-  border-color: #cbd5e1;
+.planning-main-fields {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.8fr) minmax(220px, 0.7fr);
 }
 
-.danger {
-  color: #991b1b;
-  border-color: #fecaca;
-  background: #fff5f5;
+.planning-year-editor {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.85rem;
 }
 
-.primary:disabled,
-.ghost:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
+.planning-year-row {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(120px, 0.65fr) minmax(160px, 0.85fr) auto;
+  align-items: end;
 }
 
-.table-wrap {
-  overflow-x: auto;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  margin-bottom: 1rem;
+.planning-row-btn,
+.planning-table-btn {
+  justify-content: center;
 }
 
-.table {
-  width: 100%;
-  min-width: 820px;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 0.65rem 0.7rem;
-  border-bottom: 1px solid #f1f5f9;
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  background: #f8fafc;
-  color: #475569;
-}
-
-.loading,
-.empty-note {
-  margin: 0.4rem 0 1rem;
-  padding: 0.8rem;
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #334155;
-}
-
-.edit-card {
-  border-color: #bfdbfe;
-  background: #f8fbff;
-}
-
-.edit-actions {
-  margin-top: 0.9rem;
+.planning-actions {
+  margin-top: 1rem;
   display: flex;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
-@media (max-width: 980px) {
-  .main-fields {
+.planning-table {
+  min-width: 860px;
+}
+
+@media (max-width: 1040px) {
+  .planning-top-grid,
+  .planning-main-fields,
+  .planning-filter-grid,
+  .planning-import-grid {
     grid-template-columns: 1fr;
   }
+}
 
-  .year-row {
+@media (max-width: 760px) {
+  .planning-year-row {
     grid-template-columns: 1fr;
   }
 }

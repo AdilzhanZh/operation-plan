@@ -415,16 +415,19 @@ onBeforeUnmount(() => {
   <section class="plans-page">
     <PageHeader
       title="Plans"
-      subtitle="Planning Period бөлімінен тек ағымдағы жылға арналған индикаторлар"
+      subtitle="Рабочая матрица текущего года: мероприятия, сроки исполнения и ответственные по каждому индикатору"
+      eyebrow="Execution Grid"
     />
 
-    <div class="toolbar">
-      <div class="year-fixed">
-        Год: {{ selectedYear }} (тек ағымдағы жыл)
+    <div class="panel panel-strong toolbar-panel plans-toolbar">
+      <div class="plans-year-card">
+        <span class="kicker">Current year</span>
+        <strong>{{ selectedYear }}</strong>
+        <p>Раздел синхронизирован только с индикаторами текущего года.</p>
       </div>
 
-      <label v-if="isAdmin" class="responsible-filter">
-        <span>Ответственные:</span>
+      <label v-if="isAdmin" class="plans-filter">
+        <span>Ответственные</span>
         <select v-model="selectedResponsibleFilter">
           <option value="">Барлығы</option>
           <option v-for="prorector in prorectors" :key="`filter-${prorector.id}`" :value="String(prorector.id)">
@@ -432,136 +435,148 @@ onBeforeUnmount(() => {
           </option>
         </select>
       </label>
+
+      <div class="plans-visible-card">
+        <span class="kicker">Visible</span>
+        <strong>{{ visibleRows.length }}</strong>
+      </div>
     </div>
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
-    <div v-if="loading" class="state-box">Загрузка...</div>
-    <div v-else-if="!hasRows" class="state-box">
-      {{ selectedYear }} жылына жоспарланған индикатор табылмады.
-    </div>
-    <div v-else-if="!hasVisibleRows" class="state-box">
-      Таңдалған жауаптыға сәйкес индикатор табылмады.
-    </div>
+    <section class="panel panel-strong plans-table-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Операционный план</h3>
+          <p class="panel-subtitle">Редактирование доступно администратору, отправка отчета - назначенному проректору.</p>
+        </div>
+        <span class="kicker">{{ visibleRows.length }} indicators</span>
+      </div>
 
-    <div v-else class="table-wrapper">
-      <table class="plan-table">
-        <thead>
-          <tr>
-            <th class="col-number">№</th>
-            <th>Индикатор Программы развития</th>
-            <th>Мероприятия по достижению индикатора</th>
-            <th class="col-deadline">Срок исполнения</th>
-            <th class="col-responsible">Ответственные</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
-            <td class="number-cell">{{ index + 1 }}</td>
+      <div v-if="loading" class="empty-state">Загрузка...</div>
+      <div v-else-if="!hasRows" class="empty-state">
+        {{ selectedYear }} жылына жоспарланған индикатор табылмады.
+      </div>
+      <div v-else-if="!hasVisibleRows" class="empty-state">
+        Таңдалған жауаптыға сәйкес индикатор табылмады.
+      </div>
 
-            <td>
-              <template v-if="isAdmin">
-                <textarea
-                  v-model="row.development_indicator"
-                  class="cell-textarea indicator-text"
-                  rows="3"
-                />
-                <div class="unit-inline">
-                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                </div>
-              </template>
-              <template v-else>
-                <div class="cell-readonly">{{ row.development_indicator }}</div>
-                <div class="unit-inline">
-                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                </div>
-              </template>
-            </td>
+      <div v-else class="table-wrapper">
+        <table class="plan-table">
+          <thead>
+            <tr>
+              <th class="col-number">№</th>
+              <th>Индикатор Программы развития</th>
+              <th>Мероприятия по достижению индикатора</th>
+              <th class="col-deadline">Срок исполнения</th>
+              <th class="col-responsible">Ответственные</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
+              <td class="number-cell">{{ index + 1 }}</td>
 
-            <td>
-              <template v-if="isAdmin">
-                <textarea v-model="row.activities" class="cell-textarea" rows="4" />
-              </template>
-              <template v-else>
-                <div class="cell-readonly">{{ row.activities || '—' }}</div>
-              </template>
-            </td>
+              <td>
+                <template v-if="isAdmin">
+                  <textarea
+                    v-model="row.development_indicator"
+                    class="plans-textarea indicator-text"
+                    rows="4"
+                  />
+                  <div class="plans-inline-value">
+                    {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="plans-cell-frame text-pretty">{{ row.development_indicator || '—' }}</div>
+                  <div class="plans-inline-value">
+                    {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                  </div>
+                </template>
+              </td>
 
-            <td>
-              <template v-if="isAdmin">
-                <div class="date-range-grid">
-                  <label class="date-field">
-                    <span>Басталуы</span>
-                    <input v-model="row.execution_start_date" class="cell-input" type="date" />
-                  </label>
-                  <label class="date-field">
-                    <span>Аяқталуы</span>
-                    <input v-model="row.execution_end_date" class="cell-input" type="date" />
-                  </label>
-                </div>
-                <div class="date-range-preview">
-                  {{ formatDateRange(row) || '—' }}
-                </div>
-                <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
-                  {{ scheduleStatusLabel(row.schedule_status) }}
-                </div>
-                <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
-                  Қалған уақыт: {{ formatRemainingTime(row) }}
-                </div>
-              </template>
-              <template v-else>
-                <div class="cell-readonly">{{ formatDateRange(row) || '—' }}</div>
-                <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
-                  {{ scheduleStatusLabel(row.schedule_status) }}
-                </div>
-                <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
-                  Қалған уақыт: {{ formatRemainingTime(row) }}
-                </div>
-              </template>
-            </td>
+              <td>
+                <template v-if="isAdmin">
+                  <textarea v-model="row.activities" class="plans-textarea" rows="5" />
+                </template>
+                <template v-else>
+                  <div class="plans-cell-frame text-pretty">{{ row.activities || '—' }}</div>
+                </template>
+              </td>
 
-            <td>
-              <template v-if="isAdmin">
-                <div class="cell-readonly responsible-preview">
-                  {{ row.responsible || 'Ответственные таңдалмаған' }}
+              <td>
+                <div class="plans-schedule-card">
+                  <template v-if="isAdmin">
+                    <div class="date-range-grid">
+                      <label class="date-field">
+                        <span>Басталуы</span>
+                        <input v-model="row.execution_start_date" class="plans-input" type="date" />
+                      </label>
+                      <label class="date-field">
+                        <span>Аяқталуы</span>
+                        <input v-model="row.execution_end_date" class="plans-input" type="date" />
+                      </label>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="plans-cell-frame">{{ formatDateRange(row) || '—' }}</div>
+                  </template>
+
+                  <div v-if="isAdmin" class="date-range-preview">
+                    {{ formatDateRange(row) || '—' }}
+                  </div>
+                  <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
+                    {{ scheduleStatusLabel(row.schedule_status) }}
+                  </div>
+                  <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
+                    Қалған уақыт: {{ formatRemainingTime(row) }}
+                  </div>
                 </div>
-                <button class="assign-btn" type="button" @click="openResponsibleModal(row)">
-                  Ответственные бекіту
-                </button>
-                <p v-if="prorectors.length === 0" class="cell-note">
-                  Проректорлар тізімі жоқ.
-                </p>
-                <button
-                  class="save-btn"
-                  :disabled="savingIndicatorId === row.indicator_id"
-                  @click="saveRow(row)"
-                >
-                  {{ savingIndicatorId === row.indicator_id ? 'Сақталуда...' : 'Сақтау' }}
-                </button>
-              </template>
-              <template v-else>
-                <div class="cell-readonly">{{ row.responsible || '—' }}</div>
-                <button
-                  v-if="isProrector"
-                  class="report-btn"
-                  type="button"
-                  @click="openReportModal(row)"
-                >
-                  Отправить отчет
-                </button>
-              </template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              </td>
+
+              <td>
+                <template v-if="isAdmin">
+                  <div class="plans-cell-frame responsible-preview text-pretty">
+                    {{ row.responsible || 'Ответственные таңдалмаған' }}
+                  </div>
+                  <button class="btn btn-ghost plans-assign-btn" type="button" @click="openResponsibleModal(row)">
+                    Ответственные бекіту
+                  </button>
+                  <p v-if="prorectors.length === 0" class="cell-note">
+                    Проректорлар тізімі жоқ.
+                  </p>
+                  <button
+                    class="btn btn-primary plans-save-btn"
+                    :disabled="savingIndicatorId === row.indicator_id"
+                    @click="saveRow(row)"
+                  >
+                    {{ savingIndicatorId === row.indicator_id ? 'Сақталуда...' : 'Сақтау' }}
+                  </button>
+                </template>
+                <template v-else>
+                  <div class="plans-cell-frame text-pretty">{{ row.responsible || '—' }}</div>
+                  <button
+                    v-if="isProrector"
+                    class="btn btn-primary plans-report-btn"
+                    type="button"
+                    @click="openReportModal(row)"
+                  >
+                    Отправить отчет
+                  </button>
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <div v-if="assignModalOpen" class="modal-backdrop" @click.self="closeResponsibleModal">
-      <div class="modal-card">
-        <h3 class="modal-title">Ответственные таңдау</h3>
+      <div class="modal-card plans-modal">
+        <h3 class="modal-title">Ответственные по индикатору</h3>
         <p class="modal-subtitle">
-          Керек проректорларға галочка қойып, «Бекіту» батырмасын басыңыз.
+          Отметьте проректоров, которые будут отвечать за исполнение и отчетность.
         </p>
 
         <div class="prorector-list">
@@ -575,19 +590,22 @@ onBeforeUnmount(() => {
               type="checkbox"
               :value="Number(prorector.id)"
             />
-            <span>{{ prorector.full_name }} ({{ prorector.username }})</span>
+            <span>
+              <strong>{{ prorector.full_name }}</strong>
+              <small>{{ prorector.username }}</small>
+            </span>
           </label>
 
-          <p v-if="prorectors.length === 0" class="empty-prorectors">
+          <p v-if="prorectors.length === 0" class="empty-state">
             Проректорлар тізімі бос.
           </p>
         </div>
 
         <div class="modal-actions">
-          <button class="modal-btn modal-btn-secondary" type="button" @click="closeResponsibleModal">
+          <button class="btn btn-ghost" type="button" @click="closeResponsibleModal">
             Бас тарту
           </button>
-          <button class="modal-btn modal-btn-primary" type="button" @click="applyResponsibleSelection">
+          <button class="btn btn-primary" type="button" @click="applyResponsibleSelection">
             Бекіту
           </button>
         </div>
@@ -595,13 +613,13 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="reportModalOpen" class="modal-backdrop" @click.self="closeReportModal">
-      <div class="modal-card">
+      <div class="modal-card plans-modal">
         <h3 class="modal-title">Отправить отчет</h3>
         <p class="modal-subtitle">
           {{ activeReportRow?.development_indicator || 'Индикатор' }}
         </p>
 
-        <label class="report-label">
+        <label class="modal-label">
           Текст отчета
           <textarea
             v-model="reportText"
@@ -611,7 +629,7 @@ onBeforeUnmount(() => {
           />
         </label>
 
-        <label class="report-label">
+        <label class="modal-label">
           Құжаттар (кемінде 1 файл)
           <input
             class="report-file-input"
@@ -626,11 +644,11 @@ onBeforeUnmount(() => {
         </p>
 
         <div class="modal-actions">
-          <button class="modal-btn modal-btn-secondary" type="button" @click="closeReportModal">
+          <button class="btn btn-ghost" type="button" @click="closeReportModal">
             Бас тарту
           </button>
           <button
-            class="modal-btn modal-btn-primary"
+            class="btn btn-primary"
             type="button"
             :disabled="reportSending"
             @click="submitIndicatorReport"
@@ -644,361 +662,216 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.plans-page {
+.plans-toolbar {
+  justify-content: space-between;
+}
+
+.plans-year-card,
+.plans-visible-card {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.35rem;
 }
 
-.toolbar {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.65rem;
+.plans-year-card strong,
+.plans-visible-card strong {
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
 }
 
-.year-fixed {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #f8fafc;
-  font-size: 0.92rem;
-  color: #334155;
+.plans-year-card p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 19rem;
 }
 
-.responsible-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.9rem;
+.plans-filter {
+  min-width: 18rem;
 }
 
-.responsible-filter select {
-  min-width: 240px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 0.42rem 0.55rem;
-  font: inherit;
-}
-
-.table-wrapper {
-  overflow-x: auto;
-  border: 1px solid #d8e0ea;
-  border-radius: 10px;
-  background: #ffffff;
+.plans-table-card {
+  padding: 1.2rem;
 }
 
 .plan-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 1050px;
-}
-
-.plan-table th,
-.plan-table td {
-  border: 1px solid #d8e0ea;
-  padding: 0.6rem;
-  vertical-align: top;
-}
-
-.plan-table thead th {
-  background: #f4f6f8;
-  text-align: center;
-  font-weight: 700;
+  min-width: 1180px;
 }
 
 .col-number {
-  width: 48px;
+  width: 4rem;
 }
 
 .col-deadline {
-  width: 180px;
+  width: 19rem;
 }
 
 .col-responsible {
-  width: 220px;
+  width: 20rem;
 }
 
 .number-cell {
   text-align: center;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.cell-textarea,
-.cell-input {
+.plans-textarea,
+.plans-input {
   width: 100%;
-  border: 1px solid #c8d2de;
-  border-radius: 6px;
-  padding: 0.45rem 0.55rem;
-  font: inherit;
-  resize: vertical;
-  background: #fff;
+}
+
+.indicator-text {
+  min-height: 7.5rem;
+}
+
+.plans-cell-frame {
+  min-height: 6rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 42, 0.08);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.plans-inline-value {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.plans-schedule-card {
+  display: grid;
+  gap: 0.6rem;
 }
 
 .date-range-grid {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.7rem;
 }
 
-.date-field {
-  display: grid;
-  gap: 0.2rem;
+.date-field span {
   font-size: 0.78rem;
-  color: #475569;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .date-range-preview {
-  margin-top: 0.45rem;
-  font-size: 0.84rem;
-  color: #0f172a;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
 }
 
 .schedule-status {
-  margin-top: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
 .countdown-text {
-  margin-top: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--muted-strong);
 }
 
 .schedule-in_progress {
-  color: #0f766e;
+  background: rgba(17, 120, 111, 0.12);
+  color: #0f5e57;
 }
 
 .schedule-overdue {
-  color: #b91c1c;
+  background: rgba(183, 75, 58, 0.12);
+  color: #a63f32;
 }
 
 .schedule-upcoming {
-  color: #1d4ed8;
+  background: rgba(27, 111, 168, 0.12);
+  color: #1b6fa8;
 }
 
 .schedule-not_filled {
-  color: #9a3412;
+  background: rgba(201, 111, 59, 0.14);
+  color: #9b4b24;
 }
 
 .schedule-no_deadline {
-  color: #64748b;
-}
-
-.indicator-text {
-  min-height: 86px;
-}
-
-.unit-inline {
-  margin-top: 0.35rem;
-  font-size: 0.84rem;
-  color: #475569;
-}
-
-.cell-readonly {
-  white-space: pre-wrap;
-  color: #0f172a;
+  background: rgba(68, 94, 116, 0.1);
+  color: #445e74;
 }
 
 .responsible-preview {
-  min-height: 96px;
-  border: 1px solid #c8d2de;
-  border-radius: 6px;
-  padding: 0.45rem 0.55rem;
-  background: #fff;
+  min-height: 7rem;
 }
 
-.assign-btn {
-  margin-top: 0.45rem;
+.plans-assign-btn,
+.plans-save-btn,
+.plans-report-btn {
   width: 100%;
-  border: 1px solid #0f766e;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #0f766e;
-  padding: 0.45rem 0.6rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.report-btn {
-  margin-top: 0.5rem;
-  width: 100%;
-  border: 1px solid #0f766e;
-  border-radius: 7px;
-  background: #0f766e;
-  color: #ffffff;
-  padding: 0.45rem 0.6rem;
-  font-weight: 600;
-  cursor: pointer;
+  justify-content: center;
+  margin-top: 0.65rem;
 }
 
 .cell-note {
-  margin: 0.45rem 0 0;
-  font-size: 0.8rem;
-  color: #64748b;
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
-.save-btn {
-  margin-top: 0.5rem;
-  width: 100%;
-  border: none;
-  border-radius: 7px;
-  background: #0f766e;
-  color: #ffffff;
-  padding: 0.45rem 0.6rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.save-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.message {
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  font-size: 0.92rem;
-}
-
-.message-error {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.message-success {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.state-box {
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #f8fafc;
-  padding: 1rem;
-  color: #475569;
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: grid;
-  place-items: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modal-card {
-  width: min(620px, 100%);
-  border-radius: 12px;
-  background: #ffffff;
-  border: 1px solid #d8e0ea;
-  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.2);
-  padding: 1rem;
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.modal-subtitle {
-  margin: 0.4rem 0 0.75rem;
-  color: #475569;
-  font-size: 0.9rem;
+.plans-modal {
+  width: min(680px, 100%);
 }
 
 .prorector-list {
-  max-height: 280px;
-  overflow-y: auto;
-  border: 1px solid #d8e0ea;
-  border-radius: 8px;
-  padding: 0.55rem;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.7rem;
+  margin-top: 1rem;
 }
 
 .prorector-item {
   display: flex;
+  gap: 0.8rem;
   align-items: flex-start;
-  gap: 0.55rem;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(16, 33, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.prorector-item span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.prorector-item strong {
   font-size: 0.95rem;
 }
 
-.empty-prorectors {
-  margin: 0;
-  color: #64748b;
+.prorector-item small {
+  color: var(--muted);
 }
 
-.modal-actions {
-  margin-top: 0.85rem;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.55rem;
-}
-
-.modal-btn {
-  border-radius: 7px;
-  padding: 0.45rem 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.modal-btn-secondary {
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a;
-}
-
-.modal-btn-primary {
-  border: 1px solid #0f766e;
-  background: #0f766e;
-  color: #ffffff;
-}
-
-.report-label {
+.modal-label {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
-  font-size: 0.9rem;
+  gap: 0.45rem;
+  margin-top: 1rem;
 }
 
 .report-textarea,
 .report-file-input {
   width: 100%;
-  border: 1px solid #c8d2de;
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-  font: inherit;
-  background: #fff;
 }
 
 .file-list {
-  margin: 0.2rem 0 0;
-  font-size: 0.82rem;
-  color: #475569;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
-@media (max-width: 900px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.55rem;
-  }
-
-  .modal-card {
-    max-height: 90vh;
-    overflow-y: auto;
-  }
-
-  .prorector-list {
-    max-height: 42vh;
+@media (max-width: 1100px) {
+  .plans-toolbar {
+    align-items: stretch;
   }
 }
 </style>
