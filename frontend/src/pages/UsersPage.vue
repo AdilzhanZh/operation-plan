@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { createUserRequest, fetchUsersRequest } from '../services/user.service'
 
@@ -8,6 +8,12 @@ const loading = ref(false)
 const creating = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+
+const roleLabels = {
+  admin: 'Administrator',
+  prorector: 'Prorector',
+  viewer: 'Viewer'
+}
 
 const form = reactive({
   first_name: '',
@@ -19,9 +25,24 @@ const form = reactive({
   role: 'viewer'
 })
 
+const stats = computed(() => ({
+  total: users.value.length,
+  admin: users.value.filter((item) => item.role === 'admin').length,
+  prorector: users.value.filter((item) => item.role === 'prorector').length,
+  viewer: users.value.filter((item) => item.role === 'viewer').length
+}))
+
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function formatDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '—'
+  }
+  return date.toLocaleString('ru-RU')
 }
 
 async function loadUsers() {
@@ -71,58 +92,105 @@ onMounted(() => {
 
 <template>
   <section class="users-page">
-    <PageHeader title="Users" subtitle="Жүйедегі барлық пайдаланушылар тізімі" />
+    <PageHeader
+      title="Users"
+      subtitle="Управление ролями, создание новых аккаунтов и обзор всей пользовательской базы в одном разделе"
+      eyebrow="Administration"
+    />
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
-    <div class="card">
-      <h3>Create new user</h3>
+    <div class="users-top-grid">
+      <section class="panel panel-accent users-form-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">Новый пользователь</h3>
+            <p class="panel-subtitle">Создайте аккаунт и сразу назначьте роль для рабочего процесса.</p>
+          </div>
+          <span class="kicker">Create</span>
+        </div>
 
-      <form class="create-form" @submit.prevent="createUser">
-        <label>
-          Аты
-          <input v-model="form.first_name" type="text" required />
-        </label>
-        <label>
-          Фамилиясы
-          <input v-model="form.last_name" type="text" required />
-        </label>
-        <label>
-          Тегі
-          <input v-model="form.middle_name" type="text" />
-        </label>
-        <label>
-          Логин (username)
-          <input v-model="form.username" type="text" required />
-        </label>
-        <label>
-          Пароль
-          <input v-model="form.password" type="password" required />
-        </label>
-        <label>
-          Жаңа пароль (қайта)
-          <input v-model="form.confirm_password" type="password" required />
-        </label>
-        <label>
-          Рөл
-          <select v-model="form.role" required>
-            <option value="admin">admin</option>
-            <option value="prorector">prorector</option>
-            <option value="viewer">viewer</option>
-          </select>
-        </label>
+        <form class="users-form" @submit.prevent="createUser">
+          <label>
+            Аты
+            <input v-model="form.first_name" type="text" autocomplete="given-name" required />
+          </label>
+          <label>
+            Фамилиясы
+            <input v-model="form.last_name" type="text" autocomplete="family-name" required />
+          </label>
+          <label>
+            Тегі
+            <input v-model="form.middle_name" type="text" autocomplete="additional-name" />
+          </label>
+          <label>
+            Логин
+            <input v-model="form.username" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            Пароль
+            <input v-model="form.password" type="password" autocomplete="new-password" required />
+          </label>
+          <label>
+            Пароль (қайта)
+            <input v-model="form.confirm_password" type="password" autocomplete="new-password" required />
+          </label>
+          <label class="users-role-field">
+            Рөл
+            <select v-model="form.role" required>
+              <option value="admin">admin</option>
+              <option value="prorector">prorector</option>
+              <option value="viewer">viewer</option>
+            </select>
+          </label>
 
-        <button type="submit" :disabled="creating">
-          {{ creating ? 'Құрылуда...' : 'Create new user' }}
-        </button>
-      </form>
+          <button type="submit" class="btn btn-primary users-submit" :disabled="creating">
+            {{ creating ? 'Құрылуда...' : 'Create new user' }}
+          </button>
+        </form>
+      </section>
+
+      <section class="panel panel-strong users-stats-card">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title">Состав базы</h3>
+            <p class="panel-subtitle">Моментальный срез по ролям и общему количеству аккаунтов.</p>
+          </div>
+          <span class="kicker">Overview</span>
+        </div>
+
+        <div class="users-stats-grid">
+          <div class="info-card">
+            <span>Всего</span>
+            <strong>{{ stats.total }}</strong>
+          </div>
+          <div class="info-card">
+            <span>Admins</span>
+            <strong>{{ stats.admin }}</strong>
+          </div>
+          <div class="info-card">
+            <span>Prorectors</span>
+            <strong>{{ stats.prorector }}</strong>
+          </div>
+          <div class="info-card">
+            <span>Viewers</span>
+            <strong>{{ stats.viewer }}</strong>
+          </div>
+        </div>
+      </section>
     </div>
 
-    <div class="card">
-      <h3>Пайдаланушылар тізімі</h3>
+    <section class="panel panel-strong users-list-card">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">Пользователи системы</h3>
+          <p class="panel-subtitle">Текущие учетные записи с логинами, ролями и датой создания.</p>
+        </div>
+        <span class="kicker">Registry</span>
+      </div>
 
-      <div v-if="loading">Жүктелуде...</div>
+      <div v-if="loading" class="empty-state">Жүктелуде...</div>
       <div v-else class="table-wrapper">
         <table class="users-table">
           <thead>
@@ -131,111 +199,75 @@ onMounted(() => {
               <th>Толық аты</th>
               <th>Username</th>
               <th>Role</th>
-              <th>Password (hidden)</th>
+              <th>Password</th>
               <th>Құрылған күні</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in users" :key="item.id">
               <td>{{ item.id }}</td>
-              <td>{{ item.full_name }}</td>
+              <td>{{ item.full_name || '—' }}</td>
               <td>{{ item.username }}</td>
-              <td>{{ item.role }}</td>
-              <td>{{ item.password_plain }}</td>
-              <td>{{ new Date(item.created_at).toLocaleString() }}</td>
+              <td>{{ roleLabels[item.role] ?? item.role }}</td>
+              <td>{{ item.password_plain || 'Скрыт' }}</td>
+              <td>{{ formatDate(item.created_at) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   </section>
 </template>
 
 <style scoped>
-.users-page {
+.users-top-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+}
+
+.users-form-card,
+.users-stats-card,
+.users-list-card {
+  padding: 1.2rem;
+}
+
+.users-form {
   display: grid;
   gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.card {
-  border: 1px solid #dbe2ea;
-  border-radius: 10px;
-  padding: 1rem;
-  background: #ffffff;
+.users-role-field,
+.users-submit {
+  grid-column: 1 / -1;
 }
 
-.card h3 {
-  margin: 0 0 0.8rem;
+.users-submit {
+  justify-content: center;
 }
 
-.create-form {
+.users-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.65rem;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-label {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.92rem;
+@media (max-width: 1080px) {
+  .users-top-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-input,
-select,
-button {
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
-  padding: 0.55rem 0.75rem;
-  font: inherit;
-}
+@media (max-width: 760px) {
+  .users-form,
+  .users-stats-grid {
+    grid-template-columns: 1fr;
+  }
 
-button {
-  border: none;
-  background: #0f172a;
-  color: #f8fafc;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.table-wrapper {
-  overflow-x: auto;
-}
-
-.users-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 780px;
-}
-
-.users-table th,
-.users-table td {
-  border: 1px solid #e2e8f0;
-  padding: 0.55rem 0.7rem;
-  text-align: left;
-}
-
-.users-table thead th {
-  background: #f8fafc;
-}
-
-.message {
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-}
-
-.message-error {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.message-success {
-  background: #dcfce7;
-  color: #166534;
+  .users-role-field,
+  .users-submit {
+    grid-column: auto;
+  }
 }
 </style>

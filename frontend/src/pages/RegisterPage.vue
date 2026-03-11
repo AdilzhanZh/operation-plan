@@ -38,125 +38,97 @@ async function submit() {
 </script>
 
 <template>
-  <section class="register-card">
-    <h1>Тіркелу</h1>
-    <p>Жаңа пайдаланушы (әдепкі рөл: viewer)</p>
+  <section class="auth-card">
+    <div class="auth-showcase">
+      <span class="auth-kicker">New Account</span>
+      <h1 class="auth-title">Подключите нового участника к рабочему циклу.</h1>
+      <p class="auth-lead">
+        После регистрации пользователь сможет видеть планы, сроки и статусы в рамках своей роли.
+      </p>
 
-    <form @submit.prevent="submit" class="register-form">
-      <label>
-        Аты
-        <input v-model="form.first_name" type="text" required />
-      </label>
+      <div class="auth-points">
+        <div class="auth-point">
+          <strong>Быстрое подключение</strong>
+          <span>Новый аккаунт сразу получает базовую роль `viewer` и доступ к просмотру ключевых разделов.</span>
+        </div>
+        <div class="auth-point">
+          <strong>Чистая структура данных</strong>
+          <span>Имя, фамилия и логин собираются в одном шаге без лишних переходов.</span>
+        </div>
+        <div class="auth-point">
+          <strong>Готовность к маршруту согласования</strong>
+          <span>После создания аккаунт можно перевести в нужную роль через раздел пользователей.</span>
+        </div>
+      </div>
+    </div>
 
-      <label>
-        Фамилиясы
-        <input v-model="form.last_name" type="text" required />
-      </label>
+    <div class="auth-form-panel">
+      <span class="kicker">Registration</span>
+      <h1>Создание аккаунта</h1>
+      <p>Заполните карточку пользователя. После успешной регистрации откроется страница входа.</p>
 
-      <label>
-        Тегі
-        <input v-model="form.middle_name" type="text" />
-      </label>
+      <form class="auth-actions" @submit.prevent="submit">
+        <div class="auth-form-grid columns-2">
+          <label>
+            Аты
+            <input v-model="form.first_name" type="text" autocomplete="given-name" required />
+          </label>
 
-      <label>
-        Логин
-        <input v-model="form.username" type="text" required />
-      </label>
+          <label>
+            Фамилиясы
+            <input v-model="form.last_name" type="text" autocomplete="family-name" required />
+          </label>
 
-      <label>
-        Пароль
-        <input v-model="form.password" type="password" required />
-      </label>
+          <label class="full-row">
+            Тегі
+            <input v-model="form.middle_name" type="text" autocomplete="additional-name" />
+          </label>
 
-      <label>
-        Пароль (қайта)
-        <input v-model="form.confirm_password" type="password" required />
-      </label>
+          <label>
+            Логин
+            <input v-model="form.username" type="text" autocomplete="username" required />
+          </label>
 
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-      <p v-if="successMessage" class="success">{{ successMessage }}</p>
+          <label>
+            Пароль
+            <input v-model="form.password" type="password" autocomplete="new-password" required />
+          </label>
 
-      <button type="submit" :disabled="loading">
-        {{ loading ? 'Тіркелу...' : 'Тіркелу' }}
-      </button>
-    </form>
+          <label>
+            Пароль (қайта)
+            <input v-model="form.confirm_password" type="password" autocomplete="new-password" required />
+          </label>
+        </div>
 
-    <p class="login-link">
-      Аккаунт бар ма?
-      <RouterLink :to="{ name: 'login' }">Кіру</RouterLink>
-    </p>
+        <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
+
+        <button type="submit" class="btn btn-primary auth-submit" :disabled="loading">
+          {{ loading ? 'Тіркелу...' : 'Тіркелу' }}
+        </button>
+      </form>
+
+      <p class="auth-link-row">
+        Аккаунт бар ма?
+        <RouterLink :to="{ name: 'login' }">Кіру</RouterLink>
+      </p>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.register-card {
-  width: min(520px, 100%);
-  margin: 0 auto;
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 10px 25px rgb(15 23 42 / 0.08);
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.6rem;
-}
-
-p {
-  margin: 0.35rem 0 1rem;
-  color: #475569;
-}
-
-.register-form {
-  display: grid;
-  gap: 0.8rem;
-}
-
-label {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.92rem;
-}
-
-input,
-button {
+.auth-submit {
   width: 100%;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
-  padding: 0.6rem 0.8rem;
-  font: inherit;
+  justify-content: center;
 }
 
-button {
-  border: 0;
-  background: #0f172a;
-  color: #f8fafc;
-  font-weight: 600;
-  cursor: pointer;
+.full-row {
+  grid-column: 1 / -1;
 }
 
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.error {
-  margin: 0;
-  color: #991b1b;
-}
-
-.success {
-  margin: 0;
-  color: #166534;
-}
-
-.login-link {
-  margin-top: 1rem;
-}
-
-.login-link a {
-  color: #0f766e;
-  font-weight: 600;
+@media (max-width: 920px) {
+  .full-row {
+    grid-column: auto;
+  }
 }
 </style>

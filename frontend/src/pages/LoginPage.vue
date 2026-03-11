@@ -36,99 +36,66 @@ async function submit() {
 </script>
 
 <template>
-  <section class="login-card">
-    <h1>Oper Plan</h1>
-    <p>Логин және пароль арқылы кіріңіз</p>
+  <section class="auth-card">
+    <div class="auth-showcase">
+      <span class="auth-kicker">Oper Plan</span>
+      <h1 class="auth-title">Планирование, контроль и отчеты в одном контуре.</h1>
+      <p class="auth-lead">
+        Вход открывает доступ к срокам, ответственным и статусам выполнения по всей программе развития.
+      </p>
 
-    <form @submit.prevent="submit" class="login-form">
-      <label>
-        Логин
-        <input v-model="form.username" type="text" required />
-      </label>
+      <div class="auth-points">
+        <div class="auth-point">
+          <strong>Единый рабочий контур</strong>
+          <span>Все ключевые показатели, планы и отчеты собраны в одном интерфейсе.</span>
+        </div>
+        <div class="auth-point">
+          <strong>Прозрачные сроки</strong>
+          <span>Ответственные, дедлайны и статусы видны без ручного согласования в таблицах.</span>
+        </div>
+        <div class="auth-point">
+          <strong>Быстрый контроль</strong>
+          <span>Администраторы и проректоры работают в одном процессе без переключения между системами.</span>
+        </div>
+      </div>
+    </div>
 
-      <label>
-        Пароль
-        <input v-model="form.password" type="password" required />
-      </label>
+    <div class="auth-form-panel">
+      <span class="kicker">Sign In</span>
+      <h1>Вход в систему</h1>
+      <p>Используйте логин и пароль, выданные администратором платформы.</p>
 
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+      <form class="auth-actions" @submit.prevent="submit">
+        <div class="auth-form-grid">
+          <label>
+            Логин
+            <input v-model="form.username" type="text" autocomplete="username" required />
+          </label>
 
-      <button type="submit" :disabled="loading">
-        {{ loading ? 'Кіру...' : 'Кіру' }}
-      </button>
-    </form>
+          <label>
+            Пароль
+            <input v-model="form.password" type="password" autocomplete="current-password" required />
+          </label>
+        </div>
 
-    <p class="register-link">
-      Аккаунтыңыз жоқ па?
-      <RouterLink :to="{ name: 'register' }">Тіркелу</RouterLink>
-    </p>
+        <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
+
+        <button type="submit" class="btn btn-primary auth-submit" :disabled="loading">
+          {{ loading ? 'Кіру...' : 'Кіру' }}
+        </button>
+      </form>
+
+      <p class="auth-link-row">
+        Аккаунтыңыз жоқ па?
+        <RouterLink :to="{ name: 'register' }">Тіркелу</RouterLink>
+      </p>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.login-card {
-  width: min(440px, 100%);
-  margin: 0 auto;
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 10px 25px rgb(15 23 42 / 0.08);
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.6rem;
-}
-
-p {
-  margin: 0.35rem 0 1.2rem;
-  color: #475569;
-}
-
-.login-form {
-  display: grid;
-  gap: 0.9rem;
-}
-
-label {
-  display: grid;
-  gap: 0.4rem;
-  font-size: 0.92rem;
-}
-
-input,
-button {
+.auth-submit {
   width: 100%;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
-  padding: 0.6rem 0.8rem;
-  font: inherit;
-}
-
-button {
-  border: 0;
-  background: #0f172a;
-  color: #f8fafc;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.error {
-  margin: 0;
-  color: #991b1b;
-}
-
-.register-link {
-  margin: 1rem 0 0;
-}
-
-.register-link a {
-  color: #0f766e;
-  font-weight: 600;
+  justify-content: center;
 }
 </style>
