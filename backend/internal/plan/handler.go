@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,15 @@ import (
 
 type Handler struct {
 	db *sql.DB
+
+	ensureReportSubmissionsOnce sync.Once
+	ensureReportSubmissionsErr  error
+
+	ensureReportFilesOnce sync.Once
+	ensureReportFilesErr  error
+
+	ensureReportHistoryOnce sync.Once
+	ensureReportHistoryErr  error
 }
 
 type Plan struct {

@@ -162,20 +162,31 @@ func RunSQLMigrations(db *sql.DB) error {
 			id BIGSERIAL PRIMARY KEY,
 			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
 			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
-			planned_value NUMERIC(20,6) NOT NULL,
+			planned_value TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (indicator_id, year)
 		);`,
+		`DO $$
+		BEGIN
+		  IF EXISTS (
+		    SELECT 1
+		    FROM information_schema.columns
+		    WHERE table_schema = 'public'
+		      AND table_name = 'indicator_year_targets'
+		      AND column_name = 'planned_value'
+		      AND data_type <> 'text'
+		  ) THEN
+		    ALTER TABLE indicator_year_targets
+		      ALTER COLUMN planned_value TYPE TEXT
+		      USING TRIM(BOTH FROM planned_value::TEXT);
+		  END IF;
+		END $$;`,
 		`CREATE INDEX IF NOT EXISTS indicator_year_targets_year_idx ON indicator_year_targets (year);`,
 		`INSERT INTO indicator_year_targets (indicator_id, year, planned_value, created_at, updated_at)
 		SELECT ppi.id,
 		       (kv.key)::INT,
-		       CASE
-		           WHEN kv.value ~ '^-?[0-9]+([.,][0-9]+)?$'
-		           THEN REPLACE(kv.value, ',', '.')::NUMERIC
-		           ELSE 0
-		       END,
+		       kv.value,
 		       NOW(),
 		       NOW()
 		FROM planning_period_indicators ppi
@@ -191,11 +202,17 @@ func RunSQLMigrations(db *sql.DB) error {
 			development_indicator TEXT NOT NULL DEFAULT '',
 			activities TEXT NOT NULL DEFAULT '',
 			execution_deadline TEXT NOT NULL DEFAULT '',
+			execution_start_date DATE NULL,
+			execution_end_date DATE NULL,
 			status VARCHAR(32) NOT NULL DEFAULT 'draft',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (indicator_id, year)
 		);`,
+		`ALTER TABLE plan_items
+		  ADD COLUMN IF NOT EXISTS execution_start_date DATE NULL;`,
+		`ALTER TABLE plan_items
+		  ADD COLUMN IF NOT EXISTS execution_end_date DATE NULL;`,
 		`CREATE INDEX IF NOT EXISTS plan_items_year_idx ON plan_items (year);`,
 		`CREATE INDEX IF NOT EXISTS plan_items_status_idx ON plan_items (status);`,
 		`CREATE TABLE IF NOT EXISTS plan_item_responsibles (
@@ -211,6 +228,8 @@ func RunSQLMigrations(db *sql.DB) error {
 			development_indicator,
 			activities,
 			execution_deadline,
+			execution_start_date,
+			execution_end_date,
 			status,
 			created_at,
 			updated_at
@@ -219,7 +238,9 @@ func RunSQLMigrations(db *sql.DB) error {
 		       pid.year,
 		       COALESCE(pid.development_indicator, ''),
 		       COALESCE(pid.activities, ''),
-		       COALESCE(pid.execution_deadline, ''),
+		       '',
+		       NULL,
+		       NULL,
 		       'draft',
 		       COALESCE(pid.created_at, NOW()),
 		       COALESCE(pid.updated_at, NOW())
@@ -236,6 +257,8 @@ func RunSQLMigrations(db *sql.DB) error {
 			development_indicator,
 			activities,
 			execution_deadline,
+			execution_start_date,
+			execution_end_date,
 			status,
 			created_at,
 			updated_at
@@ -244,7 +267,9 @@ func RunSQLMigrations(db *sql.DB) error {
 		       pir.year,
 		       COALESCE(NULLIF(TRIM(pid.development_indicator), ''), ppi.target_indicator, ''),
 		       COALESCE(pid.activities, ''),
-		       COALESCE(pid.execution_deadline, ''),
+		       '',
+		       NULL,
+		       NULL,
 		       'draft',
 		       COALESCE(pir.created_at, NOW()),
 		       COALESCE(pir.updated_at, NOW())
@@ -298,8 +323,16 @@ func RunSQLMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
 		`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
 		`UPDATE report_submissions
+		SET status = LOWER(TRIM(COALESCE(status, '')));`,
+		`UPDATE report_submissions
+		SET status = 'pending'
+		WHERE status = '';`,
+		`UPDATE report_submissions
 		SET status = 'completed'
 		WHERE status = 'approved';`,
+		`UPDATE report_submissions
+		SET status = 'pending'
+		WHERE status NOT IN ('pending', 'completed', 'rejected');`,
 		`DO $$
 		BEGIN
 		  IF EXISTS (

@@ -6,8 +6,6 @@ import PlanningPeriodPage from '../pages/PlanningPeriodPage.vue'
 import PlansPage from '../pages/PlansPage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import ProgramExecutionPage from '../pages/ProgramExecutionPage.vue'
-import ReviewPage from '../pages/ReviewPage.vue'
-import TasksPage from '../pages/TasksPage.vue'
 import UsersPage from '../pages/UsersPage.vue'
 import NotFoundPage from '../pages/NotFoundPage.vue'
 import { useAuthStore } from '../store/auth'
@@ -64,18 +62,6 @@ const routes = [
     name: 'program-execution',
     component: ProgramExecutionPage,
     meta: { requiresAuth: true, roles: ['admin', 'prorector'] }
-  },
-  {
-    path: '/tasks',
-    name: 'tasks',
-    component: TasksPage,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/review',
-    name: 'review',
-    component: ReviewPage,
-    meta: { requiresAuth: true, roles: ['admin'] }
   },
   {
     path: '/:pathMatch(.*)*',

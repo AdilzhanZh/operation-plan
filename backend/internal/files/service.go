@@ -11,8 +11,12 @@ const maxFileSizeBytes int64 = 20 << 20
 
 var allowedExtensions = map[string]bool{
 	".pdf":  true,
+	".doc":  true,
 	".docx": true,
+	".xls":  true,
 	".xlsx": true,
+	".ppt":  true,
+	".pptx": true,
 	".jpg":  true,
 	".jpeg": true,
 	".png":  true,

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"OperationPlan/internal/middleware"
 
@@ -34,6 +35,11 @@ type planIndicatorRow struct {
 	DevelopmentIndicator string  `json:"development_indicator"`
 	Activities           string  `json:"activities"`
 	ExecutionDeadline    string  `json:"execution_deadline"`
+	ExecutionStartDate   string  `json:"execution_start_date"`
+	ExecutionEndDate     string  `json:"execution_end_date"`
+	ScheduleStatus       string  `json:"schedule_status"`
+	ReportStatus         string  `json:"report_status"`
+	LastSubmittedAt      string  `json:"last_submitted_at"`
 	Responsible          string  `json:"responsible"`
 	ResponsibleUserIDs   []int64 `json:"responsible_user_ids"`
 }
@@ -42,6 +48,8 @@ type upsertPlanIndicatorRequest struct {
 	DevelopmentIndicator string  `json:"development_indicator"`
 	Activities           string  `json:"activities"`
 	ExecutionDeadline    string  `json:"execution_deadline"`
+	ExecutionStartDate   string  `json:"execution_start_date"`
+	ExecutionEndDate     string  `json:"execution_end_date"`
 	ResponsibleUserIDs   []int64 `json:"responsible_user_ids"`
 }
 
@@ -134,7 +142,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		return
 	}
 
-	year, _, err := parseYear(c.Query("year"))
+	year, err := resolveCurrentPlanYear(c.Query("year"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
@@ -220,10 +228,40 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		SELECT ppi.id,
 		       ppi.target_indicator,
 		       COALESCE(ppi.unit, ''),
-		       COALESCE(TRIM(TO_CHAR(iyt.planned_value, 'FM999999999990.######')), ''),
+		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
 		       COALESCE(pi.activities, ''),
-		       COALESCE(pi.execution_deadline, ''),
+		       COALESCE(TO_CHAR(pi.execution_start_date, 'YYYY-MM-DD'), ''),
+		       COALESCE(TO_CHAR(pi.execution_end_date, 'YYYY-MM-DD'), ''),
+		       CASE
+		           WHEN pi.execution_start_date IS NULL OR pi.execution_end_date IS NULL THEN 'no_deadline'
+		           WHEN CURRENT_DATE < pi.execution_start_date THEN 'upcoming'
+		           WHEN CURRENT_DATE > pi.execution_end_date THEN 'overdue'
+		           ELSE 'in_progress'
+		       END,
+		       CASE
+		           WHEN pi.execution_start_date IS NOT NULL AND pi.execution_end_date IS NOT NULL
+		           THEN TO_CHAR(pi.execution_start_date, 'DD.MM.YYYY') || ' - ' || TO_CHAR(pi.execution_end_date, 'DD.MM.YYYY')
+		           ELSE ''
+		       END,
+		       COALESCE((
+		           SELECT CASE
+		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) IN ('completed', 'approved')) > 0
+		               THEN 'completed'
+		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) = 'rejected') > 0
+		               THEN 'rejected'
+		               WHEN COUNT(*) > 0
+		               THEN 'pending'
+		               ELSE ''
+		           END
+		           FROM report_submissions rs
+		           WHERE rs.plan_item_id = pi.id
+		       ), ''),
+		       COALESCE((
+		           SELECT TO_CHAR(MAX(rs.submitted_at), 'YYYY-MM-DD"T"HH24:MI:SSOF')
+		           FROM report_submissions rs
+		           WHERE rs.plan_item_id = pi.id
+		       ), ''),
 		       COALESCE((
 		           SELECT jsonb_agg(res.user_id ORDER BY res.user_id)
 		           FROM plan_item_responsibles res
@@ -256,7 +294,12 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 			&item.PlannedValue,
 			&item.DevelopmentIndicator,
 			&item.Activities,
+			&item.ExecutionStartDate,
+			&item.ExecutionEndDate,
+			&item.ScheduleStatus,
 			&item.ExecutionDeadline,
+			&item.ReportStatus,
+			&item.LastSubmittedAt,
 			&responsibleUserIDsRaw,
 		); err != nil {
 			c.JSON(500, errorResponse{Error: "failed to parse plan indicators"})
@@ -331,7 +374,7 @@ func (h *Handler) upsertPlanIndicator(c *gin.Context) {
 		return
 	}
 
-	year, _, err := parseYear(c.Query("year"))
+	year, err := resolveCurrentPlanYear(c.Query("year"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
@@ -339,6 +382,12 @@ func (h *Handler) upsertPlanIndicator(c *gin.Context) {
 
 	var req upsertPlanIndicatorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, errorResponse{Error: err.Error()})
+		return
+	}
+
+	executionStartDate, executionEndDate, err := parseExecutionDateRange(req.ExecutionStartDate, req.ExecutionEndDate)
+	if err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
 	}
@@ -388,19 +437,23 @@ func (h *Handler) upsertPlanIndicator(c *gin.Context) {
 			development_indicator,
 			activities,
 			execution_deadline,
+			execution_start_date,
+			execution_end_date,
 			status,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, 'draft', NOW(), NOW())
+		VALUES ($1, $2, $3, $4, '', $5, $6, 'draft', NOW(), NOW())
 		ON CONFLICT (indicator_id, year)
 		DO UPDATE SET
 			development_indicator = EXCLUDED.development_indicator,
 			activities = EXCLUDED.activities,
-			execution_deadline = EXCLUDED.execution_deadline,
+			execution_deadline = '',
+			execution_start_date = EXCLUDED.execution_start_date,
+			execution_end_date = EXCLUDED.execution_end_date,
 			updated_at = NOW()
 		RETURNING id
-	`, indicatorID, year, strings.TrimSpace(req.DevelopmentIndicator), strings.TrimSpace(req.Activities), strings.TrimSpace(req.ExecutionDeadline)).Scan(&planItemID)
+	`, indicatorID, year, strings.TrimSpace(req.DevelopmentIndicator), strings.TrimSpace(req.Activities), executionStartDate, executionEndDate).Scan(&planItemID)
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to save plan item"})
 		return
@@ -456,6 +509,50 @@ func parseYear(raw string) (int, string, error) {
 	return year, strconv.Itoa(year), nil
 }
 
+func currentPlanYear() int {
+	return time.Now().Year()
+}
+
+func resolveCurrentPlanYear(raw string) (int, error) {
+	currentYear := currentPlanYear()
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return currentYear, nil
+	}
+
+	year, _, err := parseYear(trimmed)
+	if err != nil {
+		return 0, err
+	}
+	if year != currentYear {
+		return 0, fmt.Errorf("only current year is allowed: %d", currentYear)
+	}
+
+	return year, nil
+}
+
+func parseExecutionDateRange(startRaw, endRaw string) (time.Time, time.Time, error) {
+	startValue := strings.TrimSpace(startRaw)
+	endValue := strings.TrimSpace(endRaw)
+	if startValue == "" || endValue == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("execution_start_date and execution_end_date are required")
+	}
+
+	startDate, err := time.Parse("2006-01-02", startValue)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("execution_start_date must be YYYY-MM-DD")
+	}
+	endDate, err := time.Parse("2006-01-02", endValue)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("execution_end_date must be YYYY-MM-DD")
+	}
+	if startDate.After(endDate) {
+		return time.Time{}, time.Time{}, fmt.Errorf("execution_start_date cannot be later than execution_end_date")
+	}
+
+	return startDate, endDate, nil
+}
+
 func (h *Handler) ensurePlanningPeriodTable() error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS planning_period_indicators (
@@ -470,20 +567,31 @@ func (h *Handler) ensurePlanningPeriodTable() error {
 			id BIGSERIAL PRIMARY KEY,
 			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
 			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
-			planned_value NUMERIC(20,6) NOT NULL,
+			planned_value TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (indicator_id, year)
 		);`,
+		`DO $$
+		BEGIN
+		  IF EXISTS (
+		    SELECT 1
+		    FROM information_schema.columns
+		    WHERE table_schema = 'public'
+		      AND table_name = 'indicator_year_targets'
+		      AND column_name = 'planned_value'
+		      AND data_type <> 'text'
+		  ) THEN
+		    ALTER TABLE indicator_year_targets
+		      ALTER COLUMN planned_value TYPE TEXT
+		      USING TRIM(BOTH FROM planned_value::TEXT);
+		  END IF;
+		END $$;`,
 		`CREATE INDEX IF NOT EXISTS indicator_year_targets_year_idx ON indicator_year_targets (year);`,
 		`INSERT INTO indicator_year_targets (indicator_id, year, planned_value, created_at, updated_at)
 		SELECT ppi.id,
 		       (kv.key)::INT,
-		       CASE
-		           WHEN kv.value ~ '^-?[0-9]+([.,][0-9]+)?$'
-		           THEN REPLACE(kv.value, ',', '.')::NUMERIC
-		           ELSE 0
-		       END,
+		       kv.value,
 		       NOW(),
 		       NOW()
 		FROM planning_period_indicators ppi
@@ -512,11 +620,17 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 			development_indicator TEXT NOT NULL DEFAULT '',
 			activities TEXT NOT NULL DEFAULT '',
 			execution_deadline TEXT NOT NULL DEFAULT '',
+			execution_start_date DATE NULL,
+			execution_end_date DATE NULL,
 			status VARCHAR(32) NOT NULL DEFAULT 'draft',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (indicator_id, year)
 		);`,
+		`ALTER TABLE plan_items
+		  ADD COLUMN IF NOT EXISTS execution_start_date DATE NULL;`,
+		`ALTER TABLE plan_items
+		  ADD COLUMN IF NOT EXISTS execution_end_date DATE NULL;`,
 		`CREATE INDEX IF NOT EXISTS plan_items_year_idx ON plan_items (year);`,
 		`CREATE INDEX IF NOT EXISTS plan_items_status_idx ON plan_items (status);`,
 		`CREATE TABLE IF NOT EXISTS plan_item_responsibles (
@@ -532,6 +646,8 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 			development_indicator,
 			activities,
 			execution_deadline,
+			execution_start_date,
+			execution_end_date,
 			status,
 			created_at,
 			updated_at
@@ -540,7 +656,9 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 		       pid.year,
 		       COALESCE(pid.development_indicator, ''),
 		       COALESCE(pid.activities, ''),
-		       COALESCE(pid.execution_deadline, ''),
+		       '',
+		       NULL,
+		       NULL,
 		       'draft',
 		       COALESCE(pid.created_at, NOW()),
 		       COALESCE(pid.updated_at, NOW())
@@ -557,6 +675,8 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 			development_indicator,
 			activities,
 			execution_deadline,
+			execution_start_date,
+			execution_end_date,
 			status,
 			created_at,
 			updated_at
@@ -565,7 +685,9 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 		       pir.year,
 		       COALESCE(NULLIF(TRIM(pid.development_indicator), ''), ppi.target_indicator, ''),
 		       COALESCE(pid.activities, ''),
-		       COALESCE(pid.execution_deadline, ''),
+		       '',
+		       NULL,
+		       NULL,
 		       'draft',
 		       COALESCE(pir.created_at, NOW()),
 		       COALESCE(pir.updated_at, NOW())
@@ -607,6 +729,10 @@ func (h *Handler) ensurePlanIndicatorDetailsTable() error {
 			return err
 		}
 	}
+
+	if err := h.cleanupLegacyPlanDataOnce(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -637,10 +763,22 @@ func (h *Handler) fetchPlanIndicatorRow(indicatorID int, year int, yearKey strin
 		SELECT ppi.id,
 		       ppi.target_indicator,
 		       COALESCE(ppi.unit, ''),
-		       COALESCE(TRIM(TO_CHAR(iyt.planned_value, 'FM999999999990.######')), ''),
+		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
 		       COALESCE(pi.activities, ''),
-		       COALESCE(pi.execution_deadline, ''),
+		       COALESCE(TO_CHAR(pi.execution_start_date, 'YYYY-MM-DD'), ''),
+		       COALESCE(TO_CHAR(pi.execution_end_date, 'YYYY-MM-DD'), ''),
+		       CASE
+		           WHEN pi.execution_start_date IS NULL OR pi.execution_end_date IS NULL THEN 'no_deadline'
+		           WHEN CURRENT_DATE < pi.execution_start_date THEN 'upcoming'
+		           WHEN CURRENT_DATE > pi.execution_end_date THEN 'overdue'
+		           ELSE 'in_progress'
+		       END,
+		       CASE
+		           WHEN pi.execution_start_date IS NOT NULL AND pi.execution_end_date IS NOT NULL
+		           THEN TO_CHAR(pi.execution_start_date, 'DD.MM.YYYY') || ' - ' || TO_CHAR(pi.execution_end_date, 'DD.MM.YYYY')
+		           ELSE ''
+		       END,
 		       COALESCE((
 		           SELECT jsonb_agg(res.user_id ORDER BY res.user_id)
 		           FROM plan_item_responsibles res
@@ -662,6 +800,9 @@ func (h *Handler) fetchPlanIndicatorRow(indicatorID int, year int, yearKey strin
 		&item.PlannedValue,
 		&item.DevelopmentIndicator,
 		&item.Activities,
+		&item.ExecutionStartDate,
+		&item.ExecutionEndDate,
+		&item.ScheduleStatus,
 		&item.ExecutionDeadline,
 		&responsibleUserIDsRaw,
 	)
@@ -683,6 +824,69 @@ func (h *Handler) fetchPlanIndicatorRow(indicatorID int, year int, yearKey strin
 	item = rows[0]
 
 	return item, nil
+}
+
+func (h *Handler) cleanupLegacyPlanDataOnce() error {
+	if _, err := h.db.Exec(`
+		CREATE TABLE IF NOT EXISTS system_maintenance_flags (
+			key TEXT PRIMARY KEY,
+			done_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+	`); err != nil {
+		return err
+	}
+
+	var alreadyDone bool
+	if err := h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM system_maintenance_flags
+			WHERE key = 'plans_date_range_reset_v1'
+		)
+	`).Scan(&alreadyDone); err != nil {
+		return err
+	}
+	if alreadyDone {
+		return nil
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	tablesToClear := []string{
+		"report_status_history",
+		"report_files",
+		"report_submissions",
+		"plan_item_responsibles",
+		"plan_items",
+		"plan_indicator_report_files",
+		"plan_indicator_reports",
+		"plan_indicator_details",
+	}
+	for _, tableName := range tablesToClear {
+		var exists bool
+		if err := tx.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, tableName).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`TRUNCATE TABLE %s RESTART IDENTITY CASCADE`, tableName)); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO system_maintenance_flags (key, done_at)
+		VALUES ('plans_date_range_reset_v1', NOW())
+		ON CONFLICT (key) DO NOTHING
+	`); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func parseResponsibleUserIDs(raw []byte) ([]int64, error) {

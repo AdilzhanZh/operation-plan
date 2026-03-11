@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/auth'
 import {
   createPlanningPeriodIndicator,
   fetchPlanningPeriod,
+  importPlanningPeriodExcel,
   updatePlanningPeriodIndicator
 } from '../services/planningPeriod.service'
 
@@ -19,24 +20,6 @@ function newYearRow(year = '', value = '') {
     year,
     value
   }
-}
-
-function parseNumber(value) {
-  if (value === undefined || value === null) {
-    return null
-  }
-
-  const normalized = String(value).trim().replace(',', '.')
-  if (!normalized) {
-    return null
-  }
-
-  const parsed = Number(normalized)
-  if (Number.isNaN(parsed)) {
-    return Number.NaN
-  }
-
-  return parsed
 }
 
 function isRowFilled(row) {
@@ -97,20 +80,13 @@ function buildYearValuesPayload(yearRows) {
       }
     }
 
-    const value = parseNumber(rawValue)
-    if (value === null || Number.isNaN(value)) {
-      return {
-        error: `Мән дұрыс емес (${year})`
-      }
-    }
-
     if (payload[String(year)] !== undefined) {
       return {
         error: `Қайталанатын жыл: ${year}`
       }
     }
 
-    payload[String(year)] = value
+    payload[String(year)] = rawValue
   }
 
   if (Object.keys(payload).length === 0) {
@@ -148,6 +124,10 @@ const rows = ref([])
 const loading = ref(false)
 const creating = ref(false)
 const saving = ref(false)
+const importing = ref(false)
+const importFile = ref(null)
+const importFileName = ref('')
+const importInputKey = ref(0)
 const editingId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -247,6 +227,45 @@ function addEditYear() {
   const { error } = pushNextYear(editForm.years)
   if (error) {
     errorMessage.value = error
+  }
+}
+
+function handleImportFileChange(event) {
+  const files = event?.target?.files ?? []
+  const file = files[0]
+
+  importFile.value = file ?? null
+  importFileName.value = file?.name ?? ''
+}
+
+async function importFromExcel() {
+  if (!isAdmin.value) {
+    return
+  }
+
+  clearMessages()
+
+  if (!importFile.value) {
+    errorMessage.value = 'Excel файл таңдаңыз (.xlsx)'
+    return
+  }
+
+  importing.value = true
+
+  try {
+    const response = await importPlanningPeriodExcel(importFile.value)
+    successMessage.value = `Импорт аяқталды: жаңа ${response?.created ?? 0}, жаңартылды ${response?.updated ?? 0}, өткізіліп жіберілді ${response?.skipped ?? 0}`
+    importFile.value = null
+    importFileName.value = ''
+    importInputKey.value += 1
+    await loadRows()
+  } catch (requestError) {
+    errorMessage.value = requestError?.response?.data?.error
+      ?? (typeof requestError?.response?.data === 'string' ? requestError.response.data : null)
+      ?? requestError?.message
+      ?? 'Импорт кезінде қате болды'
+  } finally {
+    importing.value = false
   }
 }
 
@@ -378,6 +397,27 @@ onMounted(loadRows)
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
+
+    <div v-if="isAdmin" class="card import-card">
+      <h3>Excel импорт</h3>
+      <p class="import-note">
+        Файл форматы: <strong>.xlsx</strong>. Бағандар: «Целевой индикатор», «ед. изм.» және жылдар (2023, 2024, ...).
+      </p>
+
+      <div class="import-controls">
+        <input
+          :key="importInputKey"
+          type="file"
+          accept=".xlsx"
+          @change="handleImportFileChange"
+        />
+        <button type="button" class="primary import-btn" :disabled="importing" @click="importFromExcel">
+          {{ importing ? 'Импортталуда...' : 'Импорт жасау' }}
+        </button>
+      </div>
+
+      <p v-if="importFileName" class="import-file-name">Таңдалған файл: {{ importFileName }}</p>
+    </div>
 
     <div v-if="isAdmin" class="card">
       <h3>Добавить показатель</h3>
@@ -541,6 +581,34 @@ onMounted(loadRows)
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 1rem;
+}
+
+.import-card {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.import-note {
+  margin: 0 0 0.75rem;
+  color: #334155;
+  font-size: 0.88rem;
+}
+
+.import-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.import-btn {
+  margin-top: 0;
+}
+
+.import-file-name {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
 }
 
 h3 {

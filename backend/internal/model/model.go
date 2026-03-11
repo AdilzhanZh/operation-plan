@@ -57,12 +57,12 @@ type TaskLog struct {
 }
 
 type PlanningPeriodIndicator struct {
-	ID              uint               `gorm:"primaryKey" json:"id"`
-	TargetIndicator string             `gorm:"type:text;not null" json:"target_indicator"`
-	Unit            string             `gorm:"size:32;not null" json:"unit"`
-	YearValues      map[string]float64 `gorm:"type:jsonb;serializer:json;not null" json:"year_values"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
+	ID              uint              `gorm:"primaryKey" json:"id"`
+	TargetIndicator string            `gorm:"type:text;not null" json:"target_indicator"`
+	Unit            string            `gorm:"size:32;not null" json:"unit"`
+	YearValues      map[string]string `gorm:"type:jsonb;serializer:json;not null" json:"year_values"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
 func (PlanningPeriodIndicator) TableName() string {

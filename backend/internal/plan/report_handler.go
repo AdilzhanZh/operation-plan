@@ -558,204 +558,221 @@ func (h *Handler) downloadPlanReportFile(c *gin.Context) {
 }
 
 func (h *Handler) ensurePlanIndicatorReportsTable() error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS report_submissions (
-			id BIGSERIAL PRIMARY KEY,
-			plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
-			submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			report_text TEXT NOT NULL DEFAULT '',
-			status VARCHAR(32) NOT NULL DEFAULT 'pending',
-			review_note TEXT NOT NULL DEFAULT '',
-			approval_formula TEXT NOT NULL DEFAULT '',
-			reviewed_by BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
-			submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			reviewed_at TIMESTAMPTZ NULL,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			UNIQUE (plan_item_id, submitted_by),
-			CHECK (status IN ('pending', 'completed', 'rejected'))
-		);`,
-		`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
-		`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
-		`UPDATE report_submissions
-		SET status = 'completed'
-		WHERE status = 'approved';`,
-		`DO $$
-		BEGIN
-		  IF EXISTS (
-		    SELECT 1
-		    FROM pg_constraint
-		    WHERE conname = 'report_submissions_status_check'
-		  ) THEN
-		    ALTER TABLE report_submissions
-		      DROP CONSTRAINT report_submissions_status_check;
-		  END IF;
-		END $$;`,
-		`DO $$
-		BEGIN
-		  IF NOT EXISTS (
-		    SELECT 1
-		    FROM pg_constraint
-		    WHERE conname = 'report_submissions_status_check'
-		  ) THEN
-		    ALTER TABLE report_submissions
-		      ADD CONSTRAINT report_submissions_status_check
-		      CHECK (status IN ('pending', 'completed', 'rejected'));
-		  END IF;
-		END $$;`,
-		`INSERT INTO report_submissions (
-			plan_item_id,
-			submitted_by,
-			report_text,
-			status,
-			review_note,
-			approval_formula,
-			reviewed_by,
-			submitted_at,
-			reviewed_at,
-			created_at,
-			updated_at
-		)
-		SELECT pi.id,
-		       pir.submitted_by,
-		       COALESCE(pir.report_text, ''),
-		       CASE
-		           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) IN ('completed', 'approved')
-		           THEN 'completed'
-		           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) = 'rejected'
-		           THEN 'rejected'
-		           ELSE 'pending'
-		       END,
-		       COALESCE(pir.review_note, ''),
-		       COALESCE(pir.approval_formula, ''),
-		       pir.reviewed_by,
-		       COALESCE(pir.submitted_at, NOW()),
-		       pir.reviewed_at,
-		       COALESCE(pir.created_at, NOW()),
-		       COALESCE(pir.updated_at, NOW())
-		FROM plan_indicator_reports pir
-		JOIN plan_items pi
-		  ON pi.indicator_id = pir.planning_period_indicator_id
-		 AND pi.year = pir.year
-		ON CONFLICT (plan_item_id, submitted_by)
-		DO UPDATE SET
-			report_text = EXCLUDED.report_text,
-			status = EXCLUDED.status,
-			review_note = EXCLUDED.review_note,
-			approval_formula = EXCLUDED.approval_formula,
-			reviewed_by = EXCLUDED.reviewed_by,
-			submitted_at = EXCLUDED.submitted_at,
-			reviewed_at = EXCLUDED.reviewed_at,
-			updated_at = NOW();`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := h.db.Exec(stmt); err != nil {
-			return err
+	h.ensureReportSubmissionsOnce.Do(func() {
+		statements := []string{
+			`CREATE TABLE IF NOT EXISTS report_submissions (
+				id BIGSERIAL PRIMARY KEY,
+				plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
+				submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				report_text TEXT NOT NULL DEFAULT '',
+				status VARCHAR(32) NOT NULL DEFAULT 'pending',
+				review_note TEXT NOT NULL DEFAULT '',
+				approval_formula TEXT NOT NULL DEFAULT '',
+				reviewed_by BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
+				submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				reviewed_at TIMESTAMPTZ NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				UNIQUE (plan_item_id, submitted_by),
+				CHECK (status IN ('pending', 'completed', 'rejected'))
+			);`,
+			`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
+			`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
+			`UPDATE report_submissions
+			SET status = LOWER(TRIM(COALESCE(status, '')));`,
+			`UPDATE report_submissions
+			SET status = 'pending'
+			WHERE status = '';`,
+			`UPDATE report_submissions
+			SET status = 'completed'
+			WHERE status = 'approved';`,
+			`UPDATE report_submissions
+			SET status = 'pending'
+			WHERE status NOT IN ('pending', 'completed', 'rejected');`,
+			`DO $$
+			BEGIN
+			  IF EXISTS (
+			    SELECT 1
+			    FROM pg_constraint
+			    WHERE conname = 'report_submissions_status_check'
+			  ) THEN
+			    ALTER TABLE report_submissions
+			      DROP CONSTRAINT report_submissions_status_check;
+			  END IF;
+			END $$;`,
+			`DO $$
+			BEGIN
+			  IF NOT EXISTS (
+			    SELECT 1
+			    FROM pg_constraint
+			    WHERE conname = 'report_submissions_status_check'
+			  ) THEN
+			    ALTER TABLE report_submissions
+			      ADD CONSTRAINT report_submissions_status_check
+			      CHECK (status IN ('pending', 'completed', 'rejected'));
+			  END IF;
+			END $$;`,
+			`INSERT INTO report_submissions (
+				plan_item_id,
+				submitted_by,
+				report_text,
+				status,
+				review_note,
+				approval_formula,
+				reviewed_by,
+				submitted_at,
+				reviewed_at,
+				created_at,
+				updated_at
+			)
+			SELECT pi.id,
+			       pir.submitted_by,
+			       COALESCE(pir.report_text, ''),
+			       CASE
+			           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) IN ('completed', 'approved')
+			           THEN 'completed'
+			           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) = 'rejected'
+			           THEN 'rejected'
+			           ELSE 'pending'
+			       END,
+			       COALESCE(pir.review_note, ''),
+			       COALESCE(pir.approval_formula, ''),
+			       pir.reviewed_by,
+			       COALESCE(pir.submitted_at, NOW()),
+			       pir.reviewed_at,
+			       COALESCE(pir.created_at, NOW()),
+			       COALESCE(pir.updated_at, NOW())
+			FROM plan_indicator_reports pir
+			JOIN plan_items pi
+			  ON pi.indicator_id = pir.planning_period_indicator_id
+			 AND pi.year = pir.year
+			ON CONFLICT (plan_item_id, submitted_by)
+			DO UPDATE SET
+				report_text = EXCLUDED.report_text,
+				status = EXCLUDED.status,
+				review_note = EXCLUDED.review_note,
+				approval_formula = EXCLUDED.approval_formula,
+				reviewed_by = EXCLUDED.reviewed_by,
+				submitted_at = EXCLUDED.submitted_at,
+				reviewed_at = EXCLUDED.reviewed_at,
+				updated_at = NOW();`,
 		}
-	}
 
-	return nil
+		for _, stmt := range statements {
+			if _, err := h.db.Exec(stmt); err != nil {
+				h.ensureReportSubmissionsErr = err
+				return
+			}
+		}
+	})
+
+	return h.ensureReportSubmissionsErr
 }
 
 func (h *Handler) ensurePlanIndicatorReportFilesTable() error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS report_files (
-			id BIGSERIAL PRIMARY KEY,
-			submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
-			file_name VARCHAR(255) NOT NULL,
-			storage_key TEXT NOT NULL,
-			mime_type VARCHAR(255) NOT NULL DEFAULT '',
-			file_size BIGINT NOT NULL DEFAULT 0,
-			sha256 VARCHAR(64) NOT NULL DEFAULT '',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);`,
-		`CREATE INDEX IF NOT EXISTS report_files_submission_idx ON report_files (submission_id);`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS report_files_submission_storage_uindex ON report_files (submission_id, storage_key);`,
-		`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
-		SELECT rs.id,
-		       COALESCE(NULLIF(TRIM(prf.file_name), ''), CONCAT('file_', prf.id)),
-		       COALESCE(prf.storage_path, ''),
-		       '',
-		       0,
-		       '',
-		       COALESCE(prf.created_at, NOW())
-		FROM plan_indicator_report_files prf
-		JOIN plan_indicator_reports pir
-		  ON pir.id = prf.report_id
-		JOIN plan_items pi
-		  ON pi.indicator_id = pir.planning_period_indicator_id
-		 AND pi.year = pir.year
-		JOIN report_submissions rs
-		  ON rs.plan_item_id = pi.id
-		 AND rs.submitted_by = pir.submitted_by
-		WHERE COALESCE(prf.storage_path, '') <> ''
-		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
-		`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
-		SELECT rs.id,
-		       CASE
-		           WHEN COALESCE(NULLIF(TRIM(pir.file_name), ''), '') <> '' THEN pir.file_name
-		           ELSE CONCAT('legacy_file_', pir.id)
-		       END,
-		       pir.file_path,
-		       '',
-		       0,
-		       '',
-		       NOW()
-		FROM plan_indicator_reports pir
-		JOIN plan_items pi
-		  ON pi.indicator_id = pir.planning_period_indicator_id
-		 AND pi.year = pir.year
-		JOIN report_submissions rs
-		  ON rs.plan_item_id = pi.id
-		 AND rs.submitted_by = pir.submitted_by
-		WHERE COALESCE(TRIM(pir.file_path), '') <> ''
-		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := h.db.Exec(stmt); err != nil {
-			return err
+	h.ensureReportFilesOnce.Do(func() {
+		statements := []string{
+			`CREATE TABLE IF NOT EXISTS report_files (
+				id BIGSERIAL PRIMARY KEY,
+				submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
+				file_name VARCHAR(255) NOT NULL,
+				storage_key TEXT NOT NULL,
+				mime_type VARCHAR(255) NOT NULL DEFAULT '',
+				file_size BIGINT NOT NULL DEFAULT 0,
+				sha256 VARCHAR(64) NOT NULL DEFAULT '',
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);`,
+			`CREATE INDEX IF NOT EXISTS report_files_submission_idx ON report_files (submission_id);`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS report_files_submission_storage_uindex ON report_files (submission_id, storage_key);`,
+			`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
+			SELECT rs.id,
+			       COALESCE(NULLIF(TRIM(prf.file_name), ''), CONCAT('file_', prf.id)),
+			       COALESCE(prf.storage_path, ''),
+			       '',
+			       0,
+			       '',
+			       COALESCE(prf.created_at, NOW())
+			FROM plan_indicator_report_files prf
+			JOIN plan_indicator_reports pir
+			  ON pir.id = prf.report_id
+			JOIN plan_items pi
+			  ON pi.indicator_id = pir.planning_period_indicator_id
+			 AND pi.year = pir.year
+			JOIN report_submissions rs
+			  ON rs.plan_item_id = pi.id
+			 AND rs.submitted_by = pir.submitted_by
+			WHERE COALESCE(prf.storage_path, '') <> ''
+			ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
+			`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
+			SELECT rs.id,
+			       CASE
+			           WHEN COALESCE(NULLIF(TRIM(pir.file_name), ''), '') <> '' THEN pir.file_name
+			           ELSE CONCAT('legacy_file_', pir.id)
+			       END,
+			       pir.file_path,
+			       '',
+			       0,
+			       '',
+			       NOW()
+			FROM plan_indicator_reports pir
+			JOIN plan_items pi
+			  ON pi.indicator_id = pir.planning_period_indicator_id
+			 AND pi.year = pir.year
+			JOIN report_submissions rs
+			  ON rs.plan_item_id = pi.id
+			 AND rs.submitted_by = pir.submitted_by
+			WHERE COALESCE(TRIM(pir.file_path), '') <> ''
+			ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
 		}
-	}
 
-	return nil
+		for _, stmt := range statements {
+			if _, err := h.db.Exec(stmt); err != nil {
+				h.ensureReportFilesErr = err
+				return
+			}
+		}
+	})
+
+	return h.ensureReportFilesErr
 }
 
 func (h *Handler) ensureReportStatusHistoryTable() error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS report_status_history (
-			id BIGSERIAL PRIMARY KEY,
-			submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
-			from_status VARCHAR(32) NOT NULL DEFAULT '',
-			to_status VARCHAR(32) NOT NULL,
-			actor_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
-			note TEXT NOT NULL DEFAULT '',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);`,
-		`CREATE INDEX IF NOT EXISTS report_status_history_submission_idx ON report_status_history (submission_id, created_at DESC);`,
-		`INSERT INTO report_status_history (submission_id, from_status, to_status, actor_id, note, created_at)
-		SELECT rs.id,
-		       '',
-		       rs.status,
-		       rs.submitted_by,
-		       'initial migration',
-		       COALESCE(rs.submitted_at, NOW())
-		FROM report_submissions rs
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM report_status_history rsh
-			WHERE rsh.submission_id = rs.id
-		);`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := h.db.Exec(stmt); err != nil {
-			return err
+	h.ensureReportHistoryOnce.Do(func() {
+		statements := []string{
+			`CREATE TABLE IF NOT EXISTS report_status_history (
+				id BIGSERIAL PRIMARY KEY,
+				submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
+				from_status VARCHAR(32) NOT NULL DEFAULT '',
+				to_status VARCHAR(32) NOT NULL,
+				actor_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL,
+				note TEXT NOT NULL DEFAULT '',
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);`,
+			`CREATE INDEX IF NOT EXISTS report_status_history_submission_idx ON report_status_history (submission_id, created_at DESC);`,
+			`INSERT INTO report_status_history (submission_id, from_status, to_status, actor_id, note, created_at)
+			SELECT rs.id,
+			       '',
+			       rs.status,
+			       rs.submitted_by,
+			       'initial migration',
+			       COALESCE(rs.submitted_at, NOW())
+			FROM report_submissions rs
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM report_status_history rsh
+				WHERE rsh.submission_id = rs.id
+			);`,
 		}
-	}
 
-	return nil
+		for _, stmt := range statements {
+			if _, err := h.db.Exec(stmt); err != nil {
+				h.ensureReportHistoryErr = err
+				return
+			}
+		}
+	})
+
+	return h.ensureReportHistoryErr
 }
 
 func (h *Handler) saveIndicatorReport(
@@ -972,9 +989,13 @@ func (h *Handler) queryPlanReportsPaged(whereClause string, page int, limit int,
 		       pi.indicator_id,
 		       pi.year,
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
-		       COALESCE(TRIM(TO_CHAR(iyt.planned_value, 'FM999999999990.######')), ''),
+		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(ppi.unit, ''),
-		       COALESCE(pi.execution_deadline, ''),
+		       CASE
+		           WHEN pi.execution_start_date IS NOT NULL AND pi.execution_end_date IS NOT NULL
+		           THEN TO_CHAR(pi.execution_start_date, 'DD.MM.YYYY') || ' - ' || TO_CHAR(pi.execution_end_date, 'DD.MM.YYYY')
+		           ELSE ''
+		       END,
 		       COALESCE((
 		           SELECT STRING_AGG(
 		              COALESCE(NULLIF(TRIM(u.full_name), ''), u.username),
@@ -1206,16 +1227,8 @@ func buildReportStatusCondition(statuses []string, initialArgCount int) (string,
 	if includeOverdue {
 		clauses = append(clauses, `(
 			COALESCE(rs.status, 'pending') <> 'completed'
-			AND (
-				(
-					TRIM(COALESCE(pi.execution_deadline, '')) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-					AND TO_DATE(TRIM(pi.execution_deadline), 'YYYY-MM-DD') < CURRENT_DATE
-				)
-				OR (
-					TRIM(COALESCE(pi.execution_deadline, '')) ~ '^[0-9]{2}[.][0-9]{2}[.][0-9]{4}$'
-					AND TO_DATE(TRIM(pi.execution_deadline), 'DD.MM.YYYY') < CURRENT_DATE
-				)
-			)
+			AND pi.execution_end_date IS NOT NULL
+			AND pi.execution_end_date < CURRENT_DATE
 		)`)
 	}
 

@@ -94,6 +94,11 @@ function statusLabel(status) {
   return 'Pending'
 }
 
+function canReviewRow(row) {
+  const normalized = String(row?.status ?? '').toLowerCase()
+  return normalized === 'pending'
+}
+
 async function loadYears() {
   const response = await fetchPlanYears()
   years.value = response.years ?? []
@@ -491,12 +496,15 @@ onMounted(() => {
               </span>
             </td>
             <td class="actions-cell">
-              <button class="action-btn approve-btn" type="button" @click="openApproveModal(row)">
-                Қабылдау
-              </button>
-              <button class="action-btn reject-btn" type="button" @click="openRejectModal(row)">
-                Қабылдамау
-              </button>
+              <template v-if="canReviewRow(row)">
+                <button class="action-btn approve-btn" type="button" @click="openApproveModal(row)">
+                  Қабылдау
+                </button>
+                <button class="action-btn reject-btn" type="button" @click="openRejectModal(row)">
+                  Қабылдамау
+                </button>
+              </template>
+              <span v-else class="muted">Қаралған</span>
             </td>
           </tr>
         </tbody>
@@ -627,7 +635,13 @@ onMounted(() => {
 
         <label class="modal-label">
           Құжаттар (кемінде 1 файл)
-          <input class="file-input" type="file" multiple @change="handleResubmitFiles" />
+          <input
+            class="file-input"
+            type="file"
+            accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf"
+            multiple
+            @change="handleResubmitFiles"
+          />
         </label>
         <p v-if="resubmitFiles.length > 0" class="file-info">
           Таңдалған файлдар: {{ resubmitFiles.map((file) => file.name).join(', ') }}

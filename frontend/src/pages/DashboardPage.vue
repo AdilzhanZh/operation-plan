@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
-import { fetchPlanReports, fetchPlanYears } from '../services/plan.service'
+import { fetchPlanIndicators, fetchPlanYears } from '../services/plan.service'
 
 const years = ref([])
 const selectedYear = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
-const rows = ref([])
+const allRows = ref([])
 
 const activeCard = ref('total')
 const stats = ref({
@@ -49,13 +49,10 @@ function statusLabel(status) {
   if (normalized === 'completed') {
     return 'Completed'
   }
-  if (normalized === 'rejected') {
-    return 'Rejected'
-  }
   if (normalized === 'overdue') {
     return 'Overdue'
   }
-  return 'Pending'
+  return 'In Progress'
 }
 
 function formatPlannedValue(value, unit) {
@@ -87,7 +84,7 @@ function statusFilterByCard(cardKey) {
     case 'completed':
       return 'completed'
     case 'in_progress':
-      return 'pending,rejected'
+      return 'in_progress'
     case 'overdue':
       return 'overdue'
     default:
@@ -95,17 +92,66 @@ function statusFilterByCard(cardKey) {
   }
 }
 
-async function loadYears() {
-  const response = await fetchPlanYears()
-  years.value = response.years ?? []
-
-  if (!selectedYear.value && years.value.length > 0) {
-    selectedYear.value = String(years.value[years.value.length - 1])
+function deriveDashboardStatus(row) {
+  const reportStatus = String(row?.report_status ?? '').toLowerCase()
+  if (reportStatus === 'completed') {
+    return 'completed'
   }
+
+  const scheduleStatus = String(row?.schedule_status ?? '').toLowerCase()
+  if (scheduleStatus === 'overdue') {
+    return 'overdue'
+  }
+
+  return 'in_progress'
 }
 
-async function loadStats() {
+function recalculateStats() {
+  const next = {
+    total: allRows.value.length,
+    completed: 0,
+    in_progress: 0,
+    overdue: 0
+  }
+
+  for (const row of allRows.value) {
+    const status = String(row.dashboard_status ?? '').toLowerCase()
+    if (status === 'completed') {
+      next.completed += 1
+      continue
+    }
+    if (status === 'overdue') {
+      next.overdue += 1
+      continue
+    }
+    next.in_progress += 1
+  }
+
+  stats.value = next
+}
+
+const rows = computed(() => {
+  const filter = statusFilterByCard(activeCard.value)
+  if (!filter) {
+    return allRows.value
+  }
+
+  return allRows.value.filter((row) => String(row.dashboard_status).toLowerCase() === filter)
+})
+
+async function loadYears() {
+  const response = await fetchPlanYears()
+  const currentYear = new Date().getFullYear()
+  const sourceYears = Array.isArray(response.years) ? response.years : []
+  const currentYearRows = sourceYears.filter((year) => Number(year) === currentYear)
+
+  years.value = currentYearRows.length > 0 ? currentYearRows : [currentYear]
+  selectedYear.value = String(currentYear)
+}
+
+async function loadRows() {
   if (!selectedYear.value) {
+    allRows.value = []
     stats.value = {
       total: 0,
       completed: 0,
@@ -115,35 +161,12 @@ async function loadStats() {
     return
   }
 
-  const year = selectedYear.value
-  const [totalRes, completedRes, inProgressRes, overdueRes] = await Promise.all([
-    fetchPlanReports(year, { page: 1, limit: 1 }),
-    fetchPlanReports(year, { status: 'completed', page: 1, limit: 1 }),
-    fetchPlanReports(year, { status: 'pending,rejected', page: 1, limit: 1 }),
-    fetchPlanReports(year, { status: 'overdue', page: 1, limit: 1 })
-  ])
-
-  stats.value = {
-    total: totalRes?.meta?.total ?? 0,
-    completed: completedRes?.meta?.total ?? 0,
-    in_progress: inProgressRes?.meta?.total ?? 0,
-    overdue: overdueRes?.meta?.total ?? 0
-  }
-}
-
-async function loadRows() {
-  if (!selectedYear.value) {
-    rows.value = []
-    return
-  }
-
-  const filter = statusFilterByCard(activeCard.value)
-  const response = await fetchPlanReports(selectedYear.value, {
-    status: filter || undefined,
-    page: 1,
-    limit: 200
-  })
-  rows.value = response.items ?? []
+  const response = await fetchPlanIndicators(selectedYear.value)
+  allRows.value = (response.items ?? []).map((item) => ({
+    ...item,
+    dashboard_status: deriveDashboardStatus(item)
+  }))
+  recalculateStats()
 }
 
 async function initialize() {
@@ -152,7 +175,6 @@ async function initialize() {
 
   try {
     await loadYears()
-    await loadStats()
     await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
@@ -170,7 +192,6 @@ async function handleYearChange(event) {
   errorMessage.value = ''
 
   try {
-    await loadStats()
     await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
@@ -188,19 +209,6 @@ async function handleCardClick(cardKey) {
   }
 
   activeCard.value = cardKey
-  loading.value = true
-  errorMessage.value = ''
-
-  try {
-    await loadRows()
-  } catch (error) {
-    errorMessage.value = error?.response?.data?.error
-      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
-      ?? error?.message
-      ?? 'Индикаторлар тізімін жүктеу мүмкін болмады'
-  } finally {
-    loading.value = false
-  }
 }
 
 onMounted(() => {
@@ -263,18 +271,18 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, index) in rows" :key="row.id">
+            <tr v-for="(row, index) in rows" :key="row.indicator_id">
               <td class="number-cell">{{ index + 1 }}</td>
               <td>{{ row.development_indicator || '—' }}</td>
               <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
               <td>{{ row.execution_deadline || '—' }}</td>
               <td>{{ row.responsible || '—' }}</td>
               <td>
-                <span class="status-pill" :class="`status-${row.status}`">
-                  {{ statusLabel(row.status) }}
+                <span class="status-pill" :class="`status-${row.dashboard_status}`">
+                  {{ statusLabel(row.dashboard_status) }}
                 </span>
               </td>
-              <td>{{ formatDate(row.submitted_at) }}</td>
+              <td>{{ formatDate(row.last_submitted_at) }}</td>
             </tr>
           </tbody>
         </table>
@@ -406,9 +414,9 @@ onMounted(() => {
   color: #166534;
 }
 
-.status-rejected {
-  background: #fee2e2;
-  color: #991b1b;
+.status-in_progress {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .status-overdue {

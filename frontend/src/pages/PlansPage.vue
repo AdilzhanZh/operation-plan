@@ -1,9 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import {
   fetchPlanIndicators,
-  fetchPlanYears,
   savePlanIndicator,
   submitPlanIndicatorReport
 } from '../services/plan.service'
@@ -12,8 +11,7 @@ import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
 
-const years = ref([])
-const selectedYear = ref('')
+const selectedYear = ref(String(new Date().getFullYear()))
 const rows = ref([])
 const prorectors = ref([])
 const loading = ref(false)
@@ -28,10 +26,11 @@ const reportIndicatorId = ref(null)
 const reportText = ref('')
 const reportFiles = ref([])
 const reportSending = ref(false)
+const nowTimestamp = ref(Date.now())
+let countdownIntervalID = null
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 const isProrector = computed(() => authStore.user?.role === 'prorector')
-const hasYears = computed(() => years.value.length > 0)
 const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
 
@@ -86,15 +85,6 @@ function formatPlannedValue(value, unit) {
   return `${rawValue} ${rawUnit}`
 }
 
-async function loadYears() {
-  const response = await fetchPlanYears()
-  years.value = response.years ?? []
-
-  if (!selectedYear.value && years.value.length > 0) {
-    selectedYear.value = String(years.value[years.value.length - 1])
-  }
-}
-
 async function loadRows() {
   if (!canLoadYear.value) {
     rows.value = []
@@ -104,6 +94,9 @@ async function loadRows() {
   const response = await fetchPlanIndicators(selectedYear.value)
   rows.value = (response.items ?? []).map((item) => ({
     ...item,
+    execution_start_date: item.execution_start_date ?? '',
+    execution_end_date: item.execution_end_date ?? '',
+    schedule_status: item.schedule_status ?? 'no_deadline',
     measurement_unit: item.measurement_unit ?? item.unit ?? '',
     responsible_user_ids: Array.isArray(item.responsible_user_ids)
       ? item.responsible_user_ids.map((value) => Number(value))
@@ -115,6 +108,112 @@ async function loadRows() {
       row.responsible = formatResponsibleNamesByIDs(row.responsible_user_ids)
     }
   }
+}
+
+function formatISODateToDMY(value) {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) {
+    return ''
+  }
+
+  const [year, month, day] = normalized.split('-')
+  if (!year || !month || !day) {
+    return ''
+  }
+  return `${day}.${month}.${year}`
+}
+
+function formatDateRange(row) {
+  const start = formatISODateToDMY(row.execution_start_date)
+  const end = formatISODateToDMY(row.execution_end_date)
+  if (start && end) {
+    return `${start} - ${end}`
+  }
+  const fallback = String(row.execution_deadline ?? '').trim()
+  return fallback
+}
+
+function parseISODate(value, endOfDay = false) {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const [yearRaw, monthRaw, dayRaw] = normalized.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null
+  }
+
+  if (endOfDay) {
+    return new Date(year, month - 1, day, 23, 59, 59, 999)
+  }
+  return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function formatRemainingTime(row) {
+  if (!row.execution_start_date || !row.execution_end_date) {
+    return ''
+  }
+
+  const endDate = parseISODate(row.execution_end_date, true)
+  if (!endDate) {
+    return ''
+  }
+
+  const diffMs = endDate.getTime() - nowTimestamp.value
+  if (diffMs <= 0) {
+    return '00:00:00:00'
+  }
+
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function startCountdownTicker() {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (countdownIntervalID !== null) {
+    return
+  }
+
+  countdownIntervalID = window.setInterval(() => {
+    nowTimestamp.value = Date.now()
+  }, 1000)
+}
+
+function stopCountdownTicker() {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (countdownIntervalID === null) {
+    return
+  }
+
+  window.clearInterval(countdownIntervalID)
+  countdownIntervalID = null
+}
+
+function scheduleStatusLabel(status) {
+  const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'in_progress') {
+    return 'Уақыт өтіп жатыр'
+  }
+  if (normalized === 'overdue') {
+    return 'Уақыты өтіп кетті'
+  }
+  if (normalized === 'upcoming') {
+    return 'Уақыты әлі келген жоқ'
+  }
+  return 'Мерзім қойылмаған'
 }
 
 async function loadProrectors() {
@@ -133,30 +232,12 @@ async function initialize() {
 
   try {
     await loadProrectors()
-    await loadYears()
     await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
       ?? 'Plans бөлімін жүктеу кезінде қате болды'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleYearChange(event) {
-  selectedYear.value = event.target.value
-  clearMessages()
-  loading.value = true
-
-  try {
-    await loadRows()
-  } catch (error) {
-    errorMessage.value = error?.response?.data?.error
-      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
-      ?? error?.message
-      ?? 'Жыл бойынша мәліметтерді жүктеу кезінде қате болды'
   } finally {
     loading.value = false
   }
@@ -171,15 +252,24 @@ async function saveRow(row) {
   savingIndicatorId.value = row.indicator_id
 
   try {
+    if (!row.execution_start_date || !row.execution_end_date) {
+      errorMessage.value = 'Срок исполнения үшін басталу және аяқталу күні міндетті'
+      return
+    }
+
     const saved = await savePlanIndicator(row.indicator_id, selectedYear.value, {
       development_indicator: row.development_indicator,
       activities: row.activities,
-      execution_deadline: row.execution_deadline,
+      execution_start_date: row.execution_start_date,
+      execution_end_date: row.execution_end_date,
       responsible_user_ids: normalizeIDList(row.responsible_user_ids)
     })
 
     Object.assign(row, {
       ...saved,
+      execution_start_date: saved?.execution_start_date ?? '',
+      execution_end_date: saved?.execution_end_date ?? '',
+      schedule_status: saved?.schedule_status ?? 'no_deadline',
       responsible_user_ids: Array.isArray(saved?.responsible_user_ids)
         ? saved.responsible_user_ids.map((value) => Number(value))
         : []
@@ -294,7 +384,12 @@ async function submitIndicatorReport() {
 }
 
 onMounted(() => {
+  startCountdownTicker()
   initialize()
+})
+
+onBeforeUnmount(() => {
+  stopCountdownTicker()
 })
 </script>
 
@@ -302,30 +397,21 @@ onMounted(() => {
   <section class="plans-page">
     <PageHeader
       title="Plans"
-      subtitle="Индикаторы и мероприятия по выбранному году из Planning Period"
+      subtitle="Planning Period бөлімінен тек ағымдағы жылға арналған индикаторлар"
     />
 
     <div class="toolbar">
-      <label class="year-picker">
-        <span>Год:</span>
-        <select :value="selectedYear" :disabled="loading || !hasYears" @change="handleYearChange">
-          <option v-if="!hasYears" value="">Нет годов</option>
-          <option v-for="year in years" :key="year" :value="String(year)">
-            {{ year }}
-          </option>
-        </select>
-      </label>
+      <div class="year-fixed">
+        Год: {{ selectedYear }} (тек ағымдағы жыл)
+      </div>
     </div>
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
     <div v-if="loading" class="state-box">Загрузка...</div>
-    <div v-else-if="!hasYears" class="state-box">
-      Planning Period бөлімінде әлі жылдық дерек жоқ. Алдымен сол бөлімде индикатор енгізіңіз.
-    </div>
     <div v-else-if="rows.length === 0" class="state-box">
-      {{ selectedYear }} жылына индикатор табылмады.
+      {{ selectedYear }} жылына жоспарланған индикатор табылмады.
     </div>
 
     <div v-else class="table-wrapper">
@@ -373,10 +459,34 @@ onMounted(() => {
 
             <td>
               <template v-if="isAdmin">
-                <input v-model="row.execution_deadline" class="cell-input" type="text" />
+                <div class="date-range-grid">
+                  <label class="date-field">
+                    <span>Басталуы</span>
+                    <input v-model="row.execution_start_date" class="cell-input" type="date" />
+                  </label>
+                  <label class="date-field">
+                    <span>Аяқталуы</span>
+                    <input v-model="row.execution_end_date" class="cell-input" type="date" />
+                  </label>
+                </div>
+                <div class="date-range-preview">
+                  {{ formatDateRange(row) || '—' }}
+                </div>
+                <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
+                  {{ scheduleStatusLabel(row.schedule_status) }}
+                </div>
+                <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
+                  Қалған уақыт: {{ formatRemainingTime(row) }}
+                </div>
               </template>
               <template v-else>
-                <div class="cell-readonly">{{ row.execution_deadline || '—' }}</div>
+                <div class="cell-readonly">{{ formatDateRange(row) || '—' }}</div>
+                <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
+                  {{ scheduleStatusLabel(row.schedule_status) }}
+                </div>
+                <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
+                  Қалған уақыт: {{ formatRemainingTime(row) }}
+                </div>
               </template>
             </td>
 
@@ -475,6 +585,7 @@ onMounted(() => {
           <input
             class="report-file-input"
             type="file"
+            accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf"
             multiple
             @change="handleReportFileChange"
           />
@@ -512,19 +623,15 @@ onMounted(() => {
   justify-content: flex-start;
 }
 
-.year-picker {
+.year-fixed {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: 0.92rem;
-}
-
-.year-picker select {
-  min-width: 140px;
-  padding: 0.45rem 0.6rem;
+  padding: 0.45rem 0.65rem;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  background: #ffffff;
+  background: #f8fafc;
+  font-size: 0.92rem;
+  color: #334155;
 }
 
 .table-wrapper {
@@ -579,6 +686,53 @@ onMounted(() => {
   font: inherit;
   resize: vertical;
   background: #fff;
+}
+
+.date-range-grid {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.date-field {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.date-range-preview {
+  margin-top: 0.45rem;
+  font-size: 0.84rem;
+  color: #0f172a;
+}
+
+.schedule-status {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.countdown-text {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.schedule-in_progress {
+  color: #0f766e;
+}
+
+.schedule-overdue {
+  color: #b91c1c;
+}
+
+.schedule-upcoming {
+  color: #1d4ed8;
+}
+
+.schedule-no_deadline {
+  color: #64748b;
 }
 
 .indicator-text {

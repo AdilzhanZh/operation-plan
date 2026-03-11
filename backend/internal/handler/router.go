@@ -7,8 +7,6 @@ import (
 	"OperationPlan/internal/middleware"
 	"OperationPlan/internal/period"
 	"OperationPlan/internal/plan"
-	"OperationPlan/internal/report"
-	"OperationPlan/internal/task"
 	"OperationPlan/internal/user"
 
 	"github.com/gin-gonic/gin"
@@ -26,8 +24,6 @@ func RegisterRoutes(router *gin.Engine, db *sql.DB) {
 	protected.Use(middleware.AuthRequired(db))
 
 	plan.RegisterRoutes(protected, db)
-	task.RegisterRoutes(protected, db)
-	report.RegisterRoutes(protected, db)
 	period.RegisterRoutes(protected, db)
 
 	adminProtected := protected.Group("/")
