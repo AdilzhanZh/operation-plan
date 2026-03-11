@@ -42,9 +42,10 @@ internal/
 - `DELETE /tasks/:id`
 - `POST /tasks/:id/report`
 - `GET /tasks/:id/reports`
-- `GET /planning-period`
+- `GET /planning-period` (admin, prorector)
 - `POST /planning-period` (admin)
 - `PATCH /planning-period/:id` (admin)
+- `POST /planning-period/import` (admin)
 
 ## Run
 

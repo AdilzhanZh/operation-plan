@@ -3,11 +3,13 @@ package handler
 import (
 	"database/sql"
 
-	"OperationPlan/internal/config"
 	"OperationPlan/internal/auth"
+	"OperationPlan/internal/config"
 	"OperationPlan/internal/middleware"
 	"OperationPlan/internal/period"
 	"OperationPlan/internal/plan"
+	"OperationPlan/internal/report"
+	"OperationPlan/internal/task"
 	"OperationPlan/internal/user"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +27,12 @@ func RegisterRoutes(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 	protected.Use(middleware.AuthRequired(db))
 
 	plan.RegisterRoutes(protected, db)
-	period.RegisterRoutes(protected, db)
+	task.RegisterRoutes(protected, db)
+	report.RegisterRoutes(protected, db)
+
+	periodProtected := protected.Group("/")
+	periodProtected.Use(middleware.RequireRoles("admin", "prorector"))
+	period.RegisterRoutes(periodProtected, db)
 
 	adminProtected := protected.Group("/")
 	adminProtected.Use(middleware.RequireRoles("admin"))
