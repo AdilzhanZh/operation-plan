@@ -18,6 +18,7 @@ const loading = ref(false)
 const savingIndicatorId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
+const selectedResponsibleFilter = ref('')
 const assignModalOpen = ref(false)
 const activeIndicatorId = ref(null)
 const modalSelectedIds = ref([])
@@ -33,6 +34,20 @@ const isAdmin = computed(() => authStore.user?.role === 'admin')
 const isProrector = computed(() => authStore.user?.role === 'prorector')
 const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
+const visibleRows = computed(() => {
+  if (!isAdmin.value) {
+    return rows.value
+  }
+
+  const responsibleID = Number(selectedResponsibleFilter.value)
+  if (!Number.isInteger(responsibleID) || responsibleID <= 0) {
+    return rows.value
+  }
+
+  return rows.value.filter((row) => (row.responsible_user_ids ?? []).includes(responsibleID))
+})
+const hasRows = computed(() => rows.value.length > 0)
+const hasVisibleRows = computed(() => visibleRows.value.length > 0)
 
 function clearMessages() {
   errorMessage.value = ''
@@ -407,14 +422,27 @@ onBeforeUnmount(() => {
       <div class="year-fixed">
         Год: {{ selectedYear }} (тек ағымдағы жыл)
       </div>
+
+      <label v-if="isAdmin" class="responsible-filter">
+        <span>Ответственные:</span>
+        <select v-model="selectedResponsibleFilter">
+          <option value="">Барлығы</option>
+          <option v-for="prorector in prorectors" :key="`filter-${prorector.id}`" :value="String(prorector.id)">
+            {{ prorector.full_name }}
+          </option>
+        </select>
+      </label>
     </div>
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
     <div v-if="loading" class="state-box">Загрузка...</div>
-    <div v-else-if="rows.length === 0" class="state-box">
+    <div v-else-if="!hasRows" class="state-box">
       {{ selectedYear }} жылына жоспарланған индикатор табылмады.
+    </div>
+    <div v-else-if="!hasVisibleRows" class="state-box">
+      Таңдалған жауаптыға сәйкес индикатор табылмады.
     </div>
 
     <div v-else class="table-wrapper">
@@ -429,7 +457,7 @@ onBeforeUnmount(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, index) in rows" :key="row.indicator_id">
+          <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
             <td class="number-cell">{{ index + 1 }}</td>
 
             <td>
@@ -624,6 +652,9 @@ onBeforeUnmount(() => {
 .toolbar {
   display: flex;
   justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
 }
 
 .year-fixed {
@@ -635,6 +666,22 @@ onBeforeUnmount(() => {
   background: #f8fafc;
   font-size: 0.92rem;
   color: #334155;
+}
+
+.responsible-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+}
+
+.responsible-filter select {
+  min-width: 240px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.42rem 0.55rem;
+  font: inherit;
 }
 
 .table-wrapper {

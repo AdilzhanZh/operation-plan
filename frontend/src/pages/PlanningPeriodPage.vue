@@ -131,6 +131,8 @@ const importInputKey = ref(0)
 const editingId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
+const periodFromYear = ref('')
+const periodToYear = ref('')
 
 const createForm = reactive({
   targetIndicator: '',
@@ -144,13 +146,75 @@ const editForm = reactive({
   years: [newYearRow()]
 })
 
+function parseFilterYear(rawValue) {
+  const normalized = String(rawValue ?? '').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const parsed = Number(normalized)
+  if (!Number.isInteger(parsed)) {
+    return null
+  }
+
+  if (parsed < 2000 || parsed > 2100) {
+    return null
+  }
+
+  return parsed
+}
+
+const yearRange = computed(() => {
+  const from = parseFilterYear(periodFromYear.value)
+  const to = parseFilterYear(periodToYear.value)
+
+  if (from === null && to === null) {
+    return { from: null, to: null }
+  }
+  if (from !== null && to !== null) {
+    return from <= to
+      ? { from, to }
+      : { from: to, to: from }
+  }
+
+  return { from, to }
+})
+
+function yearInSelectedRange(yearValue) {
+  const numericYear = Number(yearValue)
+  if (!Number.isInteger(numericYear)) {
+    return false
+  }
+
+  const { from, to } = yearRange.value
+  if (from !== null && numericYear < from) {
+    return false
+  }
+  if (to !== null && numericYear > to) {
+    return false
+  }
+  return true
+}
+
+const filteredRows = computed(() => {
+  const { from, to } = yearRange.value
+  if (from === null && to === null) {
+    return rows.value
+  }
+
+  return rows.value.filter((row) => Object.keys(row.year_values ?? {}).some((year) => yearInSelectedRange(year)))
+})
+
 const hasRows = computed(() => rows.value.length > 0)
+const hasFilteredRows = computed(() => filteredRows.value.length > 0)
 const tableYears = computed(() => {
   const allYears = new Set()
 
-  for (const row of rows.value) {
+  for (const row of filteredRows.value) {
     for (const year of Object.keys(row.year_values ?? {})) {
-      allYears.add(year)
+      if (yearInSelectedRange(year)) {
+        allYears.add(year)
+      }
     }
   }
 
@@ -164,6 +228,11 @@ const isAdmin = computed(() => authStore.user?.role === 'admin')
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function clearPeriodFilter() {
+  periodFromYear.value = ''
+  periodToYear.value = ''
 }
 
 function resetCreateForm() {
@@ -398,6 +467,25 @@ onMounted(loadRows)
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="message message-success">{{ successMessage }}</p>
 
+    <div class="card filter-card">
+      <h3>Жылдық период бойынша фильтр</h3>
+      <div class="period-filter">
+        <label>
+          Бастапқы жыл
+          <input v-model="periodFromYear" type="number" min="2000" max="2100" placeholder="2023" />
+        </label>
+
+        <label>
+          Соңғы жыл
+          <input v-model="periodToYear" type="number" min="2000" max="2100" placeholder="2026" />
+        </label>
+
+        <button type="button" class="ghost" @click="clearPeriodFilter">
+          Фильтрді тазалау
+        </button>
+      </div>
+    </div>
+
     <div v-if="isAdmin" class="card import-card">
       <h3>Excel импорт</h3>
       <p class="import-note">
@@ -486,7 +574,7 @@ onMounted(loadRows)
     <div v-if="loading" class="loading">Жүктелуде...</div>
 
     <template v-else>
-      <div v-if="hasRows" class="table-wrap">
+      <div v-if="hasFilteredRows" class="table-wrap">
         <table class="table">
           <thead>
             <tr>
@@ -498,7 +586,7 @@ onMounted(loadRows)
           </thead>
 
           <tbody>
-            <tr v-for="row in rows" :key="row.id">
+            <tr v-for="row in filteredRows" :key="row.id">
               <td>{{ row.target_indicator }}</td>
               <td>{{ row.unit }}</td>
               <td v-for="year in tableYears" :key="`${row.id}-${year}`">
@@ -511,6 +599,10 @@ onMounted(loadRows)
           </tbody>
         </table>
       </div>
+
+      <p v-else-if="hasRows" class="empty-note">
+        Таңдалған период бойынша индикатор табылмады.
+      </p>
 
       <p v-else class="empty-note">
         Кесте әзірге бос. Бірінші жолды қосқаннан кейін кесте осы жерде көрінеді.
@@ -609,6 +701,22 @@ onMounted(loadRows)
   margin: 0.6rem 0 0;
   font-size: 0.85rem;
   color: #475569;
+}
+
+.filter-card {
+  border-color: #d6e8ff;
+  background: #f8fbff;
+}
+
+.period-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+}
+
+.period-filter label {
+  min-width: 170px;
 }
 
 h3 {

@@ -10,6 +10,7 @@ const loading = ref(false)
 const saving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const showPasswordForm = ref(false)
 
 const form = reactive({
   old_password: '',
@@ -46,11 +47,24 @@ async function changePassword() {
     form.old_password = ''
     form.new_password = ''
     form.confirm_password = ''
+    showPasswordForm.value = false
   } catch (error) {
     errorMessage.value = error?.response?.data?.error ?? 'Пароль өзгерту кезінде қате болды'
   } finally {
     saving.value = false
   }
+}
+
+function openPasswordForm() {
+  clearMessages()
+  showPasswordForm.value = true
+}
+
+function closePasswordForm() {
+  form.old_password = ''
+  form.new_password = ''
+  form.confirm_password = ''
+  showPasswordForm.value = false
 }
 
 onMounted(() => {
@@ -80,7 +94,16 @@ onMounted(() => {
 
     <div class="card">
       <h3>Сменить пароль</h3>
-      <form class="password-form" @submit.prevent="changePassword">
+      <button
+        v-if="!showPasswordForm"
+        type="button"
+        class="toggle-password-btn"
+        @click="openPasswordForm"
+      >
+        Сменить пароль
+      </button>
+
+      <form v-else class="password-form" @submit.prevent="changePassword">
         <label>
           Ескі пароль
           <input v-model="form.old_password" type="password" required />
@@ -94,9 +117,14 @@ onMounted(() => {
           <input v-model="form.confirm_password" type="password" required />
         </label>
 
-        <button type="submit" :disabled="saving">
-          {{ saving ? 'Сақталуда...' : 'Парольді ауыстыру' }}
-        </button>
+        <div class="form-actions">
+          <button type="button" class="cancel-btn" @click="closePasswordForm">
+            Жабу
+          </button>
+          <button type="submit" :disabled="saving">
+            {{ saving ? 'Сақталуда...' : 'Парольді ауыстыру' }}
+          </button>
+        </div>
       </form>
     </div>
   </section>
@@ -131,10 +159,26 @@ onMounted(() => {
   max-width: 520px;
 }
 
+.toggle-password-btn {
+  max-width: 220px;
+}
+
 label {
   display: grid;
   gap: 0.35rem;
   font-size: 0.92rem;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.cancel-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
 }
 
 input,
