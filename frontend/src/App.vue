@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { logoutRequest } from './services/auth.service'
 import { useAuthStore } from './store/auth'
 
 const route = useRoute()
@@ -31,9 +32,15 @@ const visibleNavigation = computed(() => {
 const currentUserName = computed(() => authStore.user?.full_name || authStore.user?.username || 'Oper Plan User')
 const currentUserRole = computed(() => roleLabels[authStore.user?.role] ?? authStore.user?.role ?? 'Workspace member')
 
-function logout() {
-  authStore.logout()
-  router.push({ name: 'login' })
+async function logout() {
+  try {
+    await logoutRequest()
+  } catch {
+    // Local cleanup is still required when token is already expired.
+  } finally {
+    authStore.logout()
+    router.push({ name: 'login' })
+  }
 }
 </script>
 

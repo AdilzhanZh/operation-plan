@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -17,6 +18,9 @@ type Config struct {
 	DBName             string
 	DBSSLMode          string
 	DBTimezone         string
+	SessionTTLHours    int
+	BootstrapAdminUsername string
+	BootstrapAdminPassword string
 	CORSAllowedOrigins []string
 }
 
@@ -28,15 +32,18 @@ func Load() (*Config, error) {
 	_ = godotenv.Load("backend/.env")
 
 	return &Config{
-		Port:       getEnv("PORT", "8080"),
-		LogLevel:   getEnv("LOG_LEVEL", "INFO"),
-		DBHost:     getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:     getEnv("DB_PORT", "5433"),
-		DBUser:     getEnv("DB_USER", "admin"),
-		DBPassword: getEnv("DB_PASSWORD", "admin123"),
-		DBName:     getEnv("DB_NAME", "oper-plan"),
-		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
-		DBTimezone: getEnv("DB_TIMEZONE", "Asia/Qyzylorda"),
+		Port:                   getEnv("PORT", "8080"),
+		LogLevel:               getEnv("LOG_LEVEL", "INFO"),
+		DBHost:                 getEnv("DB_HOST", "127.0.0.1"),
+		DBPort:                 getEnv("DB_PORT", "5433"),
+		DBUser:                 getEnv("DB_USER", "admin"),
+		DBPassword:             getEnv("DB_PASSWORD", "admin123"),
+		DBName:                 getEnv("DB_NAME", "oper-plan"),
+		DBSSLMode:              getEnv("DB_SSLMODE", "disable"),
+		DBTimezone:             getEnv("DB_TIMEZONE", "Asia/Qyzylorda"),
+		SessionTTLHours:        getEnvInt("SESSION_TTL_HOURS", 24),
+		BootstrapAdminUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+		BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
 		CORSAllowedOrigins: getEnvList(
 			"CORS_ALLOWED_ORIGINS",
 			[]string{
@@ -55,6 +62,25 @@ func getEnv(key, defaultValue string) string {
 	}
 
 	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return defaultValue
+	}
+
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return defaultValue
+	}
+
+	return parsed
 }
 
 func getEnvList(key string, defaultValue []string) []string {

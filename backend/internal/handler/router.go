@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 
+	"OperationPlan/internal/config"
 	"OperationPlan/internal/auth"
 	"OperationPlan/internal/middleware"
 	"OperationPlan/internal/period"
@@ -14,11 +15,11 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func RegisterRoutes(router *gin.Engine, db *sql.DB) {
+func RegisterRoutes(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 	router.GET("/healthz", healthz)
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	auth.RegisterRoutes(router, db)
+	auth.RegisterRoutes(router, db, cfg)
 
 	protected := router.Group("/")
 	protected.Use(middleware.AuthRequired(db))

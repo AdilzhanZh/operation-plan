@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"OperationPlan/internal/config"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"OperationPlan/internal/middleware"
 
@@ -22,7 +25,10 @@ var (
 )
 
 type Handler struct {
-	db *sql.DB
+	db                     *sql.DB
+	sessionTTLSeconds      int64
+	bootstrapAdminUsername string
+	bootstrapAdminPassword string
 }
 
 type loginRequest struct {
@@ -78,13 +84,23 @@ type meUser struct {
 	Role       string `json:"role"`
 }
 
-func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
-	h := &Handler{db: db}
+func RegisterRoutes(router gin.IRoutes, db *sql.DB, cfg *config.Config) {
+	sessionTTLHours := cfg.SessionTTLHours
+	if sessionTTLHours <= 0 {
+		sessionTTLHours = 24
+	}
+
+	h := &Handler{
+		db:                     db,
+		sessionTTLSeconds:      int64((time.Duration(sessionTTLHours) * time.Hour) / time.Second),
+		bootstrapAdminUsername: normalizeBootstrapAdminUsername(cfg.BootstrapAdminUsername),
+		bootstrapAdminPassword: strings.TrimSpace(cfg.BootstrapAdminPassword),
+	}
 
 	if err := h.ensureUsersTable(); err != nil {
 		panic(err)
 	}
-	if err := h.ensureDefaultAdmin(); err != nil {
+	if err := h.ensureBootstrapAdmin(); err != nil {
 		panic(err)
 	}
 	if err := h.ensurePasswordHashes(); err != nil {
@@ -93,6 +109,7 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 
 	router.POST("/login", h.login)
 	router.POST("/register", h.register)
+	router.POST("/logout", middleware.AuthRequired(db), h.logout)
 	router.GET("/me", middleware.AuthRequired(db), h.me)
 	router.POST("/change-password", middleware.AuthRequired(db), h.changePassword)
 }
@@ -171,15 +188,20 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 
+	if err := h.cleanupExpiredSessions(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to cleanup expired sessions"})
+		return
+	}
+
 	if _, err := h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, user.ID); err != nil {
 		c.JSON(500, errorResponse{Error: "failed to reset old sessions"})
 		return
 	}
 
 	if _, err := h.db.Exec(`
-		INSERT INTO user_sessions (user_id, token, created_at)
-		VALUES ($1, $2, NOW())
-	`, user.ID, token); err != nil {
+		INSERT INTO user_sessions (user_id, token, created_at, expires_at)
+		VALUES ($1, $2, NOW(), NOW() + ($3 * INTERVAL '1 second'))
+	`, user.ID, token, h.sessionTTLSeconds); err != nil {
 		c.JSON(500, errorResponse{Error: "failed to create session"})
 		return
 	}
@@ -232,6 +254,34 @@ func (h *Handler) register(c *gin.Context) {
 	}
 
 	c.JSON(201, user)
+}
+
+// logout godoc
+// @Summary Logout
+// @Description Revokes current user session
+// @Tags auth
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} gin.H
+// @Failure 401 {object} errorResponse
+// @Failure 500 {object} errorResponse
+// @Router /logout [post]
+func (h *Handler) logout(c *gin.Context) {
+	token, err := middleware.ExtractBearerToken(c.GetHeader("Authorization"))
+	if err != nil {
+		c.JSON(401, errorResponse{Error: err.Error()})
+		return
+	}
+
+	if _, err := h.db.Exec(`
+		DELETE FROM user_sessions
+		WHERE token = $1
+	`, token); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to revoke session"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "logged out successfully"})
 }
 
 // me godoc
@@ -338,7 +388,15 @@ func (h *Handler) changePassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "password changed successfully"})
+	if _, err := h.db.Exec(`
+		DELETE FROM user_sessions
+		WHERE user_id = $1
+	`, user.ID); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to revoke active sessions"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "password changed successfully, please log in again"})
 }
 
 var (
@@ -538,6 +596,23 @@ func (h *Handler) ensurePasswordHashes() error {
 	return nil
 }
 
+func normalizeBootstrapAdminUsername(username string) string {
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return "admin"
+	}
+
+	return trimmed
+}
+
+func (h *Handler) cleanupExpiredSessions() error {
+	_, err := h.db.Exec(`
+		DELETE FROM user_sessions
+		WHERE expires_at <= NOW()
+	`)
+	return err
+}
+
 func (h *Handler) ensureUsersTable() error {
 	if _, err := h.db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
@@ -575,9 +650,26 @@ func (h *Handler) ensureUsersTable() error {
 			id BIGSERIAL PRIMARY KEY,
 			user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			token VARCHAR(255) NOT NULL UNIQUE,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at TIMESTAMPTZ NOT NULL
 		);
 	`); err != nil {
+		return err
+	}
+
+	if _, err := h.db.Exec(`ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`); err != nil {
+		return err
+	}
+
+	if _, err := h.db.Exec(`
+		UPDATE user_sessions
+		SET expires_at = created_at + ($1 * INTERVAL '1 second')
+		WHERE expires_at IS NULL
+	`, h.sessionTTLSeconds); err != nil {
+		return err
+	}
+
+	if _, err := h.db.Exec(`ALTER TABLE user_sessions ALTER COLUMN expires_at SET NOT NULL`); err != nil {
 		return err
 	}
 
@@ -588,54 +680,44 @@ func (h *Handler) ensureUsersTable() error {
 	return nil
 }
 
-func (h *Handler) ensureDefaultAdmin() error {
-	var adminID int64
-	var currentHash string
-	var legacyPlain string
-	err := h.db.QueryRow(`
-		SELECT id, COALESCE(password_hash, ''), COALESCE(password_plain, '')
-		FROM users
-		WHERE username = 'admin'
-		LIMIT 1
-	`).Scan(&adminID, &currentHash, &legacyPlain)
-	if errors.Is(err, sql.ErrNoRows) {
-		_, createErr := h.createUser("System", "Admin", "", "admin", "Admin123", "Admin123", "admin")
-		return createErr
+func (h *Handler) ensureBootstrapAdmin() error {
+	if h.bootstrapAdminPassword == "" {
+		slog.Info("bootstrap admin skipped: BOOTSTRAP_ADMIN_PASSWORD is empty")
+		return nil
 	}
+
+	if err := validatePassword(h.bootstrapAdminPassword); err != nil {
+		return fmt.Errorf("invalid bootstrap admin password: %w", err)
+	}
+
+	var existingID int64
+	err := h.db.QueryRow(`
+		SELECT id
+		FROM users
+		WHERE username = $1
+		LIMIT 1
+	`, h.bootstrapAdminUsername).Scan(&existingID)
+	if err == nil {
+		slog.Info("bootstrap admin skipped: user already exists", "username", h.bootstrapAdminUsername)
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	_, err = h.createUser(
+		"System",
+		"Admin",
+		"",
+		h.bootstrapAdminUsername,
+		h.bootstrapAdminPassword,
+		h.bootstrapAdminPassword,
+		"admin",
+	)
 	if err != nil {
 		return err
 	}
 
-	newHash := currentHash
-	if strings.TrimSpace(newHash) == "" {
-		sourcePassword := strings.TrimSpace(legacyPlain)
-		if sourcePassword == "" {
-			sourcePassword = "Admin123"
-		}
-		generatedHash, hashErr := hashPassword(sourcePassword)
-		if hashErr != nil {
-			return hashErr
-		}
-		newHash = generatedHash
-	}
-
-	_, err = h.db.Exec(`
-		UPDATE users
-		SET role = 'admin',
-		    first_name = CASE WHEN TRIM(first_name) = '' THEN 'System' ELSE first_name END,
-		    last_name = CASE WHEN TRIM(last_name) = '' THEN 'Admin' ELSE last_name END,
-		    full_name = CASE
-		      WHEN TRIM(full_name) = '' THEN CONCAT(
-		        CASE WHEN TRIM(last_name) = '' THEN 'Admin' ELSE last_name END,
-		        ' ',
-		        CASE WHEN TRIM(first_name) = '' THEN 'System' ELSE first_name END
-		      )
-		      ELSE full_name
-		    END,
-		    password_hash = $2,
-		    password_plain = '',
-		    updated_at = NOW()
-		WHERE id = $1
-	`, adminID, newHash)
-	return err
+	slog.Warn("bootstrap admin created; rotate password after first login", "username", h.bootstrapAdminUsername)
+	return nil
 }

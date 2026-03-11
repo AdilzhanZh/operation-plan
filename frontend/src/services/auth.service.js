@@ -19,3 +19,8 @@ export async function changePasswordRequest(payload) {
   const { data } = await http.post('/change-password', payload)
   return data
 }
+
+export async function logoutRequest() {
+  const { data } = await http.post('/logout')
+  return data
+}

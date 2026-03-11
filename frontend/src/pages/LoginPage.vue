@@ -1,9 +1,10 @@
 <script setup>
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { loginRequest } from '../services/auth.service'
 import { useAuthStore } from '../store/auth'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -14,6 +15,7 @@ const form = reactive({
 
 const loading = ref(false)
 const errorMessage = ref('')
+const infoMessage = ref(route.query.reauth === '1' ? 'Сессия завершена. Войдите снова с новым паролем.' : '')
 
 async function submit() {
   loading.value = true
@@ -78,6 +80,7 @@ async function submit() {
           </label>
         </div>
 
+        <p v-if="infoMessage" class="message message-success">{{ infoMessage }}</p>
         <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
 
         <button type="submit" class="btn btn-primary auth-submit" :disabled="loading">

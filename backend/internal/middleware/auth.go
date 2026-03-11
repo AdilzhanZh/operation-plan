@@ -3,6 +3,7 @@ package middleware
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -21,22 +22,30 @@ type UserContext struct {
 	Role       string `json:"role"`
 }
 
+func ExtractBearerToken(header string) (string, error) {
+	authHeader := strings.TrimSpace(header)
+	if authHeader == "" {
+		return "", fmt.Errorf("missing Authorization header")
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" || token == authHeader {
+		return "", fmt.Errorf("invalid bearer token")
+	}
+
+	return token, nil
+}
+
 func AuthRequired(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-		if authHeader == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "missing Authorization header"})
-			return
-		}
-
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == "" || token == authHeader {
-			c.AbortWithStatusJSON(401, gin.H{"error": "invalid bearer token"})
+		token, err := ExtractBearerToken(c.GetHeader("Authorization"))
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": err.Error()})
 			return
 		}
 
 		var user UserContext
-		err := db.QueryRow(`
+		err = db.QueryRow(`
 			SELECT u.id,
 			       u.first_name,
 			       u.last_name,
@@ -47,6 +56,7 @@ func AuthRequired(db *sql.DB) gin.HandlerFunc {
 			FROM user_sessions s
 			JOIN users u ON u.id = s.user_id
 			WHERE s.token = $1
+			  AND s.expires_at > NOW()
 			ORDER BY s.id DESC
 			LIMIT 1
 		`, token).Scan(

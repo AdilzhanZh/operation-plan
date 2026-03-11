@@ -21,6 +21,7 @@ internal/
 ## Implemented API Skeleton
 
 - `POST /login`
+- `POST /logout`
 - `POST /register`
 - `GET /me`
 - `POST /change-password`
@@ -67,6 +68,9 @@ DB_NAME=oper-plan
 DB_SSLMODE=disable
 DB_TIMEZONE=Asia/Qyzylorda
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
+SESSION_TTL_HOURS=24
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=
 ```
 
 3. Backend-ті іске қосыңыз:
@@ -75,6 +79,8 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
 cd backend
 go run ./cmd/api
 ```
+
+Если нужно автоматически создать первый `admin`, задайте `BOOTSTRAP_ADMIN_PASSWORD` перед запуском. Без этого backend больше не создает администратора с предсказуемым паролем.
 
 4. Тексеру:
 - API health: `http://localhost:8080/healthz`

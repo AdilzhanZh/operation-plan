@@ -64,7 +64,7 @@ func main() {
 		gin.Recovery(),
 	)
 
-	handler.RegisterRoutes(r, sqlDB)
+	handler.RegisterRoutes(r, sqlDB, cfg)
 
 	srv := server.New(r, cfg.Port)
 	if err := srv.Run(); err != nil {

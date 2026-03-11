@@ -1,9 +1,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import { changePasswordRequest, getMeRequest } from '../services/auth.service'
 import { useAuthStore } from '../store/auth'
 
+const router = useRouter()
 const authStore = useAuthStore()
 
 const loading = ref(false)
@@ -58,11 +60,12 @@ async function changePassword() {
 
   try {
     await changePasswordRequest(form)
-    successMessage.value = 'Пароль сәтті өзгертілді'
     form.old_password = ''
     form.new_password = ''
     form.confirm_password = ''
     showPasswordForm.value = false
+    authStore.logout()
+    await router.push({ name: 'login', query: { reauth: '1' } })
   } catch (error) {
     errorMessage.value = error?.response?.data?.error ?? 'Пароль өзгерту кезінде қате болды'
   } finally {
