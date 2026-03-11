@@ -2,7 +2,9 @@ package report
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -33,7 +35,7 @@ type reportListResponse struct {
 	Items []Report `json:"items"`
 }
 
-func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
+func RegisterRoutes(router gin.IRouter, db *sql.DB) {
 	h := &Handler{db: db}
 
 	router.POST("/tasks/:id/report", h.uploadReport)
@@ -53,9 +55,29 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 // @Failure 400 {object} errorResponse
 // @Router /tasks/{id}/report [post]
 func (h *Handler) uploadReport(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
 	taskID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: "invalid task id"})
+		return
+	}
+
+	responsibleUserID, err := h.fetchTaskResponsibleUserID(taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "task not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to load task"})
+		return
+	}
+	if !canAccessTaskReports(user, responsibleUserID) {
+		c.JSON(403, errorResponse{Error: "forbidden"})
 		return
 	}
 
@@ -70,19 +92,29 @@ func (h *Handler) uploadReport(c *gin.Context) {
 		return
 	}
 
-	uploadedBy := 1
-	if user := middleware.CurrentUser(c); user != nil {
-		uploadedBy = int(user.ID)
+	reportDir, err := resolveTaskReportStoragePath(taskID)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to prepare report storage"})
+		return
+	}
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to prepare report storage"})
+		return
 	}
 
-	filePath := fmt.Sprintf("/uploads/tasks/%d/%s", taskID, filepath.Base(fileHeader.Filename))
+	storedName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(fileHeader.Filename))
+	filePath := filepath.Join(reportDir, storedName)
+	if err := c.SaveUploadedFile(fileHeader, filePath); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to store report file"})
+		return
+	}
 
 	var report Report
 	err = h.db.QueryRow(`
 		INSERT INTO reports (task_id, file_path, uploaded_by, uploaded_at)
 		VALUES ($1, $2, $3, NOW())
 		RETURNING id, task_id, file_path, uploaded_by, uploaded_at
-	`, taskID, filePath, uploadedBy).Scan(
+	`, taskID, filePath, user.ID).Scan(
 		&report.ID,
 		&report.TaskID,
 		&report.FilePath,
@@ -108,9 +140,29 @@ func (h *Handler) uploadReport(c *gin.Context) {
 // @Failure 400 {object} errorResponse
 // @Router /tasks/{id}/reports [get]
 func (h *Handler) listReports(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
 	taskID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: "invalid task id"})
+		return
+	}
+
+	responsibleUserID, err := h.fetchTaskResponsibleUserID(taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "task not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to load task"})
+		return
+	}
+	if !canAccessTaskReports(user, responsibleUserID) {
+		c.JSON(403, errorResponse{Error: "forbidden"})
 		return
 	}
 
@@ -142,4 +194,39 @@ func (h *Handler) listReports(c *gin.Context) {
 	}
 
 	c.JSON(200, reportListResponse{Items: items})
+}
+
+func (h *Handler) fetchTaskResponsibleUserID(taskID int) (int64, error) {
+	var responsibleUserID int64
+	err := h.db.QueryRow(`
+		SELECT responsible_user_id
+		FROM tasks
+		WHERE id = $1
+	`, taskID).Scan(&responsibleUserID)
+	if err != nil {
+		return 0, err
+	}
+
+	return responsibleUserID, nil
+}
+
+func canAccessTaskReports(user *middleware.UserContext, responsibleUserID int64) bool {
+	if user == nil {
+		return false
+	}
+
+	if user.Role == "admin" {
+		return true
+	}
+
+	return user.ID == responsibleUserID
+}
+
+func resolveTaskReportStoragePath(taskID int) (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(wd, "storage", "task-reports", strconv.Itoa(taskID)), nil
 }

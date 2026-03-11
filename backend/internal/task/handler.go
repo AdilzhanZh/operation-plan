@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"OperationPlan/internal/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -72,15 +74,18 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
+func RegisterRoutes(router gin.IRouter, db *sql.DB) {
 	h := &Handler{db: db}
 
 	router.GET("/tasks", h.listTasks)
-	router.POST("/tasks", h.createTask)
 	router.GET("/tasks/:id", h.getTask)
-	router.PATCH("/tasks/:id", h.updateTask)
-	router.PATCH("/tasks/:id/status", h.updateTaskStatus)
-	router.DELETE("/tasks/:id", h.deleteTask)
+
+	adminOnly := router.Group("/")
+	adminOnly.Use(middleware.RequireRoles("admin"))
+	adminOnly.POST("/tasks", h.createTask)
+	adminOnly.PATCH("/tasks/:id", h.updateTask)
+	adminOnly.PATCH("/tasks/:id/status", h.updateTaskStatus)
+	adminOnly.DELETE("/tasks/:id", h.deleteTask)
 }
 
 // listTasks godoc
@@ -92,12 +97,30 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 // @Success 200 {object} taskListResponse
 // @Router /tasks [get]
 func (h *Handler) listTasks(c *gin.Context) {
-	rows, err := h.db.Query(`
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
+	query := `
 		SELECT id, plan_id, parent_id, title, description, planned_value, deadline,
 		       responsible_user_id, status, result_text, completion_percent, created_at, updated_at
 		FROM tasks
-		ORDER BY id ASC
-	`)
+	`
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if user.Role == "admin" {
+		rows, err = h.db.Query(query + ` ORDER BY id ASC`)
+	} else {
+		rows, err = h.db.Query(query+`
+			WHERE responsible_user_id = $1
+			ORDER BY id ASC
+		`, user.ID)
+	}
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to load tasks"})
 		return
@@ -182,6 +205,12 @@ func (h *Handler) createTask(c *gin.Context) {
 // @Failure 404 {object} errorResponse
 // @Router /tasks/{id} [get]
 func (h *Handler) getTask(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(400, errorResponse{Error: "invalid task id"})
@@ -196,6 +225,11 @@ func (h *Handler) getTask(c *gin.Context) {
 		}
 
 		c.JSON(500, errorResponse{Error: "failed to load task"})
+		return
+	}
+
+	if !canAccessTask(user, task) {
+		c.JSON(403, errorResponse{Error: "forbidden"})
 		return
 	}
 
@@ -448,4 +482,16 @@ func scanTask(scanner rowScanner) (Task, error) {
 	}
 
 	return task, nil
+}
+
+func canAccessTask(user *middleware.UserContext, task Task) bool {
+	if user == nil {
+		return false
+	}
+
+	if user.Role == "admin" {
+		return true
+	}
+
+	return int64(task.ResponsibleUserID) == user.ID
 }

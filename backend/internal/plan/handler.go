@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"OperationPlan/internal/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -47,11 +49,10 @@ type planListResponse struct {
 	Items []Plan `json:"items"`
 }
 
-func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
+func RegisterRoutes(router gin.IRouter, db *sql.DB) {
 	h := &Handler{db: db}
 
 	router.GET("/plans", h.listPlans)
-	router.POST("/plans", h.createPlan)
 	router.GET("/plans/years", h.listPlanYears)
 	router.GET("/plans/indicators", h.listPlanIndicators)
 	router.PUT("/plans/indicators/:indicator_id", h.upsertPlanIndicator)
@@ -60,7 +61,11 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 	router.PATCH("/plans/reports/:report_id/review", h.reviewPlanIndicatorReport)
 	router.GET("/plans/reports/files/:file_id/download", h.downloadPlanReportFile)
 	router.GET("/plan-records/:id", h.getPlan)
-	router.PATCH("/plan-records/:id/status", h.updatePlanStatus)
+
+	adminOnly := router.Group("/")
+	adminOnly.Use(middleware.RequireRoles("admin"))
+	adminOnly.POST("/plans", h.createPlan)
+	adminOnly.PATCH("/plan-records/:id/status", h.updatePlanStatus)
 }
 
 // listPlans godoc
