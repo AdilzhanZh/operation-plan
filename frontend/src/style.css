@@ -289,6 +289,7 @@ a {
   display: grid;
   gap: 1.25rem;
   align-content: start;
+  min-width: 0;
   min-height: 100%;
   padding-bottom: 2rem;
   animation: rise-in 0.5s ease;
@@ -302,6 +303,7 @@ a {
 .users-page {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .panel {
@@ -310,6 +312,7 @@ a {
   background: var(--surface);
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow-soft);
+  min-width: 0;
 }
 
 .panel-strong {

@@ -346,7 +346,6 @@ onMounted(() => {
             <tr>
               <th>№</th>
               <th>Целевой индикатор</th>
-              <th>Мән</th>
               <th>Срок исполнения</th>
               <th>Ответственные</th>
               <th>Статус</th>
@@ -355,17 +354,19 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.indicator_id">
-              <td class="number-cell">{{ index + 1 }}</td>
-              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
-              <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
-              <td>{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty">{{ row.responsible || '—' }}</td>
-              <td>
+              <td class="number-cell" data-label="№">{{ index + 1 }}</td>
+              <td data-label="Целевой индикатор">
+                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
+              </td>
+              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
+              <td data-label="Статус">
                 <span class="status-pill" :class="`status-${row.dashboard_status}`">
                   {{ statusLabel(row.dashboard_status) }}
                 </span>
               </td>
-              <td>{{ formatDate(row.last_submitted_at) }}</td>
+              <td data-label="Отправлено">{{ formatDate(row.last_submitted_at) }}</td>
             </tr>
           </tbody>
         </table>
@@ -448,7 +449,7 @@ onMounted(() => {
 }
 
 .dashboard-table {
-  min-width: 980px;
+  min-width: 900px;
 }
 
 .number-cell {
@@ -457,9 +458,98 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.planned-value-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.4rem;
+  border: 1px solid #d8e0ea;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  background: #f8fafc;
+}
+
 @media (max-width: 900px) {
   .dashboard-toolbar {
     align-items: stretch;
+  }
+}
+
+@media (max-width: 840px) {
+  .dashboard-list-card {
+    padding: 0.95rem;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .dashboard-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .dashboard-table thead {
+    display: none;
+  }
+
+  .dashboard-table tbody {
+    display: grid;
+    gap: 0.78rem;
+  }
+
+  .dashboard-table tbody tr {
+    display: block;
+    padding: 0.72rem 0.82rem;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .dashboard-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(120px, 38%) 1fr;
+    gap: 0.52rem;
+    padding: 0.48rem 0.1rem;
+    border-bottom: 1px dashed rgba(16, 33, 42, 0.12);
+  }
+
+  .dashboard-table tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .dashboard-table tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .number-cell {
+    text-align: left;
+  }
+}
+
+@media (max-width: 620px) {
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-table tbody td {
+    grid-template-columns: 1fr;
+    gap: 0.38rem;
+  }
+
+  .dashboard-table tbody td::before {
+    font-size: 0.68rem;
   }
 }
 </style>

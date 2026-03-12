@@ -19,14 +19,23 @@ const savingIndicatorId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
 const selectedResponsibleFilter = ref('')
-const assignModalOpen = ref(false)
-const activeIndicatorId = ref(null)
-const modalSelectedIds = ref([])
 const reportModalOpen = ref(false)
 const reportIndicatorId = ref(null)
 const reportText = ref('')
 const reportFiles = ref([])
 const reportSending = ref(false)
+const readModalOpen = ref(false)
+const readModalTitle = ref('')
+const readModalText = ref('')
+const rowEditModalOpen = ref(false)
+const rowEditIndicatorId = ref(null)
+const rowEditForm = ref({
+  development_indicator: '',
+  activities: '',
+  execution_start_date: '',
+  execution_end_date: '',
+  responsible_user_ids: []
+})
 const nowTimestamp = ref(Date.now())
 let countdownIntervalID = null
 
@@ -48,10 +57,28 @@ const visibleRows = computed(() => {
 })
 const hasRows = computed(() => rows.value.length > 0)
 const hasVisibleRows = computed(() => visibleRows.value.length > 0)
+const activeRowEdit = computed(() => rows.value.find((item) => item.indicator_id === rowEditIndicatorId.value) ?? null)
 
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function textPreview(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || '—'
+}
+
+function openReadModal(title, value) {
+  readModalTitle.value = title
+  readModalText.value = textPreview(value)
+  readModalOpen.value = true
+}
+
+function closeReadModal() {
+  readModalOpen.value = false
+  readModalTitle.value = ''
+  readModalText.value = ''
 }
 
 function normalizeIDList(values) {
@@ -303,40 +330,57 @@ async function saveRow(row) {
   }
 }
 
-function openResponsibleModal(row) {
+function openRowEditModal(row) {
   if (!isAdmin.value) {
     return
   }
 
-  activeIndicatorId.value = row.indicator_id
-  modalSelectedIds.value = normalizeIDList(row.responsible_user_ids)
-  assignModalOpen.value = true
+  rowEditIndicatorId.value = row.indicator_id
+  rowEditForm.value = {
+    development_indicator: String(row.development_indicator ?? ''),
+    activities: String(row.activities ?? ''),
+    execution_start_date: String(row.execution_start_date ?? ''),
+    execution_end_date: String(row.execution_end_date ?? ''),
+    responsible_user_ids: normalizeIDList(row.responsible_user_ids)
+  }
+  rowEditModalOpen.value = true
+  clearMessages()
 }
 
-function closeResponsibleModal() {
-  assignModalOpen.value = false
-  activeIndicatorId.value = null
-  modalSelectedIds.value = []
+function closeRowEditModal() {
+  rowEditModalOpen.value = false
+  rowEditIndicatorId.value = null
+  rowEditForm.value = {
+    development_indicator: '',
+    activities: '',
+    execution_start_date: '',
+    execution_end_date: '',
+    responsible_user_ids: []
+  }
 }
 
-async function applyResponsibleSelection() {
-  const indicatorID = activeIndicatorId.value
-  if (indicatorID === null) {
-    closeResponsibleModal()
+async function saveRowFromModal() {
+  if (!isAdmin.value || !canLoadYear.value || rowEditIndicatorId.value === null) {
     return
   }
 
-  const row = rows.value.find((item) => item.indicator_id === indicatorID)
+  const row = rows.value.find((item) => item.indicator_id === rowEditIndicatorId.value)
   if (!row) {
-    closeResponsibleModal()
+    closeRowEditModal()
     return
   }
 
-  const selectedIDs = normalizeIDList(modalSelectedIds.value)
-  row.responsible_user_ids = selectedIDs
-  row.responsible = formatResponsibleNamesByIDs(selectedIDs)
-  closeResponsibleModal()
+  row.development_indicator = rowEditForm.value.development_indicator.trim()
+  row.activities = rowEditForm.value.activities.trim()
+  row.execution_start_date = String(rowEditForm.value.execution_start_date ?? '')
+  row.execution_end_date = String(rowEditForm.value.execution_end_date ?? '')
+  row.responsible_user_ids = normalizeIDList(rowEditForm.value.responsible_user_ids)
+  row.responsible = formatResponsibleNamesByIDs(row.responsible_user_ids)
+
   await saveRow(row)
+  if (!errorMessage.value) {
+    closeRowEditModal()
+  }
 }
 
 function openReportModal(row) {
@@ -475,57 +519,42 @@ onBeforeUnmount(() => {
           </thead>
           <tbody>
             <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
-              <td class="number-cell">{{ index + 1 }}</td>
+              <td class="number-cell" data-label="№">{{ index + 1 }}</td>
 
-              <td>
-                <template v-if="isAdmin">
-                  <textarea
-                    v-model="row.development_indicator"
-                    class="plans-textarea indicator-text"
-                    rows="4"
-                  />
-                  <div class="plans-inline-value">
-                    {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="plans-cell-frame text-pretty">{{ row.development_indicator || '—' }}</div>
-                  <div class="plans-inline-value">
-                    {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                  </div>
-                </template>
+              <td data-label="Индикатор программы развития">
+                <div
+                  class="plans-preview-inline text-pretty"
+                  :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal('Индикатор Программы развития', row.development_indicator)"
+                  @keyup.enter="openReadModal('Индикатор Программы развития', row.development_indicator)"
+                  @keyup.space.prevent="openReadModal('Индикатор Программы развития', row.development_indicator)"
+                >
+                  <span class="plans-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                </div>
+                <span class="planned-value-chip">
+                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                </span>
               </td>
 
-              <td>
-                <template v-if="isAdmin">
-                  <textarea v-model="row.activities" class="plans-textarea" rows="5" />
-                </template>
-                <template v-else>
-                  <div class="plans-cell-frame text-pretty">{{ row.activities || '—' }}</div>
-                </template>
+              <td data-label="Мероприятия по достижению индикатора">
+                <div
+                  class="plans-preview-inline text-pretty"
+                  :class="{ 'is-empty': textPreview(row.activities) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal('Мероприятия по достижению индикатора', row.activities)"
+                  @keyup.enter="openReadModal('Мероприятия по достижению индикатора', row.activities)"
+                  @keyup.space.prevent="openReadModal('Мероприятия по достижению индикатора', row.activities)"
+                >
+                  <span class="plans-preview-content">{{ textPreview(row.activities) }}</span>
+                </div>
               </td>
 
-              <td>
+              <td data-label="Срок исполнения">
                 <div class="plans-schedule-card">
-                  <template v-if="isAdmin">
-                    <div class="date-range-grid">
-                      <label class="date-field">
-                        <span>Басталуы</span>
-                        <input v-model="row.execution_start_date" class="plans-input" type="date" />
-                      </label>
-                      <label class="date-field">
-                        <span>Аяқталуы</span>
-                        <input v-model="row.execution_end_date" class="plans-input" type="date" />
-                      </label>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="plans-cell-frame">{{ formatDateRange(row) || '—' }}</div>
-                  </template>
-
-                  <div v-if="isAdmin" class="date-range-preview">
-                    {{ formatDateRange(row) || '—' }}
-                  </div>
+                  <div class="plans-cell-frame">{{ formatDateRange(row) || '—' }}</div>
                   <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
                     {{ scheduleStatusLabel(row.schedule_status) }}
                   </div>
@@ -535,23 +564,17 @@ onBeforeUnmount(() => {
                 </div>
               </td>
 
-              <td>
+              <td data-label="Ответственные">
                 <template v-if="isAdmin">
                   <div class="plans-cell-frame responsible-preview text-pretty">
                     {{ row.responsible || 'Ответственные таңдалмаған' }}
                   </div>
-                  <button class="btn btn-ghost plans-assign-btn" type="button" @click="openResponsibleModal(row)">
-                    Ответственные бекіту
-                  </button>
-                  <p v-if="prorectors.length === 0" class="cell-note">
-                    Проректорлар тізімі жоқ.
-                  </p>
                   <button
-                    class="btn btn-primary plans-save-btn"
-                    :disabled="savingIndicatorId === row.indicator_id"
-                    @click="saveRow(row)"
+                    class="btn btn-primary plans-edit-row-btn"
+                    type="button"
+                    @click="openRowEditModal(row)"
                   >
-                    {{ savingIndicatorId === row.indicator_id ? 'Сақталуда...' : 'Сақтау' }}
+                    Өзгерту
                   </button>
                 </template>
                 <template v-else>
@@ -572,41 +595,101 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <div v-if="assignModalOpen" class="modal-backdrop" @click.self="closeResponsibleModal">
-      <div class="modal-card plans-modal">
-        <h3 class="modal-title">Ответственные по индикатору</h3>
-        <p class="modal-subtitle">
-          Отметьте проректоров, которые будут отвечать за исполнение и отчетность.
-        </p>
-
-        <div class="prorector-list">
-          <label
-            v-for="prorector in prorectors"
-            :key="`prorector-option-${prorector.id}`"
-            class="prorector-item"
-          >
-            <input
-              v-model="modalSelectedIds"
-              type="checkbox"
-              :value="Number(prorector.id)"
-            />
-            <span>
-              <strong>{{ prorector.full_name }}</strong>
-              <small>{{ prorector.username }}</small>
-            </span>
-          </label>
-
-          <p v-if="prorectors.length === 0" class="empty-state">
-            Проректорлар тізімі бос.
-          </p>
+    <div v-if="readModalOpen" class="modal-backdrop" @click.self="closeReadModal">
+      <div class="modal-card plans-modal plans-read-modal">
+        <h3 class="modal-title">{{ readModalTitle }}</h3>
+        <div class="plans-read-content text-pretty">
+          {{ readModalText }}
         </div>
 
         <div class="modal-actions">
-          <button class="btn btn-ghost" type="button" @click="closeResponsibleModal">
+          <button class="btn btn-primary" type="button" @click="closeReadModal">
+            Жабу
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="rowEditModalOpen" class="modal-backdrop" @click.self="closeRowEditModal">
+      <div class="modal-card plans-modal plans-row-edit-modal">
+        <h3 class="modal-title">Индикаторды өзгерту</h3>
+        <p class="modal-subtitle">
+          {{ activeRowEdit?.development_indicator || 'Индикатор' }}
+        </p>
+
+        <div class="row-edit-grid">
+          <label class="modal-label">
+            Индикатор Программы развития
+            <textarea
+              v-model="rowEditForm.development_indicator"
+              class="plans-edit-textarea"
+              rows="5"
+              placeholder="Индикатор мәтінін жазыңыз..."
+            />
+          </label>
+
+          <label class="modal-label">
+            Мероприятия по достижению индикатора
+            <textarea
+              v-model="rowEditForm.activities"
+              class="plans-edit-textarea"
+              rows="8"
+              placeholder="Мероприятия мәтінін жазыңыз..."
+            />
+          </label>
+
+          <div class="row-edit-dates">
+            <div class="date-range-grid">
+              <label class="date-field">
+                <span>Басталуы</span>
+                <input v-model="rowEditForm.execution_start_date" class="plans-input" type="date" />
+              </label>
+              <label class="date-field">
+                <span>Аяқталуы</span>
+                <input v-model="rowEditForm.execution_end_date" class="plans-input" type="date" />
+              </label>
+            </div>
+            <p class="date-range-preview">
+              {{ formatDateRange(rowEditForm) || '—' }}
+            </p>
+          </div>
+
+          <label class="modal-label">
+            Ответственные
+            <div class="prorector-list row-edit-prorectors">
+              <label
+                v-for="prorector in prorectors"
+                :key="`row-edit-prorector-${prorector.id}`"
+                class="prorector-item"
+              >
+                <input
+                  v-model="rowEditForm.responsible_user_ids"
+                  type="checkbox"
+                  :value="Number(prorector.id)"
+                />
+                <span>
+                  <strong>{{ prorector.full_name }}</strong>
+                  <small>{{ prorector.username }}</small>
+                </span>
+              </label>
+              <p v-if="prorectors.length === 0" class="empty-state">
+                Проректорлар тізімі жоқ.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" @click="closeRowEditModal">
             Бас тарту
           </button>
-          <button class="btn btn-primary" type="button" @click="applyResponsibleSelection">
-            Бекіту
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="savingIndicatorId === rowEditIndicatorId"
+            @click="saveRowFromModal"
+          >
+            {{ savingIndicatorId === rowEditIndicatorId ? 'Сақталуда...' : 'Сақтау' }}
           </button>
         </div>
       </div>
@@ -719,22 +802,58 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.indicator-text {
-  min-height: 7.5rem;
+.plans-preview-inline {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plans-preview-inline:focus-visible {
+  outline: 2px solid rgba(17, 120, 111, 0.5);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.plans-preview-content {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-height: 1.48;
+  word-break: break-word;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
+  mask-image: linear-gradient(180deg, #000 72%, transparent);
+}
+
+.plans-preview-inline.is-empty .plans-preview-content {
+  color: var(--muted);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .plans-cell-frame {
-  min-height: 6rem;
+  min-height: 5rem;
   padding: 0.9rem;
   border-radius: 18px;
   border: 1px solid rgba(16, 33, 42, 0.08);
   background: rgba(255, 255, 255, 0.68);
 }
 
-.plans-inline-value {
+.planned-value-chip {
+  display: inline-flex;
+  align-items: center;
   margin-top: 0.6rem;
-  color: var(--muted);
-  font-size: 0.88rem;
+  border: 1px solid #d8e0ea;
+  border-radius: 999px;
+  padding: 0.2rem 0.58rem;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 0.78rem;
   font-weight: 700;
 }
 
@@ -802,11 +921,10 @@ onBeforeUnmount(() => {
 }
 
 .responsible-preview {
-  min-height: 7rem;
+  min-height: 5.2rem;
 }
 
-.plans-assign-btn,
-.plans-save-btn,
+.plans-edit-row-btn,
 .plans-report-btn {
   width: 100%;
   justify-content: center;
@@ -821,6 +939,48 @@ onBeforeUnmount(() => {
 
 .plans-modal {
   width: min(680px, 100%);
+}
+
+.plans-row-edit-modal {
+  width: min(920px, 100%);
+}
+
+.plans-read-modal {
+  width: min(760px, 100%);
+}
+
+.plans-read-content {
+  max-height: min(60vh, 460px);
+  overflow: auto;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.plans-edit-textarea {
+  width: 100%;
+  min-height: 9.2rem;
+  resize: vertical;
+}
+
+.row-edit-grid {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.row-edit-dates {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.row-edit-prorectors {
+  max-height: 14rem;
+  overflow: auto;
+  padding-right: 0.2rem;
 }
 
 .prorector-list {
@@ -872,6 +1032,110 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) {
   .plans-toolbar {
     align-items: stretch;
+  }
+
+  .plans-filter {
+    min-width: 100%;
+  }
+}
+
+@media (max-width: 980px) {
+  .plans-table-card {
+    padding: 0.9rem;
+  }
+
+  .table-wrapper {
+    overflow: visible;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .plan-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .plan-table thead {
+    display: none;
+  }
+
+  .plan-table tbody {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .plan-table tbody tr {
+    display: block;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .plan-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(130px, 38%) 1fr;
+    gap: 0.6rem;
+    padding: 0.52rem 0.1rem;
+    border-bottom: 1px dashed rgba(16, 33, 42, 0.12);
+  }
+
+  .plan-table tbody td:last-child {
+    border-bottom: 0;
+    padding-bottom: 0.2rem;
+  }
+
+  .plan-table tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .number-cell {
+    align-items: center;
+    justify-content: start;
+    text-align: left;
+    font-size: 1rem;
+  }
+
+  .plans-cell-frame {
+    min-height: auto;
+    padding: 0.72rem;
+    border-radius: 14px;
+  }
+
+  .date-range-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plans-edit-row-btn,
+  .plans-report-btn {
+    margin-top: 0.52rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .plans-year-card strong,
+  .plans-visible-card strong {
+    font-size: 2rem;
+  }
+
+  .panel-header {
+    gap: 0.7rem;
+  }
+
+  .plan-table tbody td {
+    grid-template-columns: 1fr;
+    gap: 0.42rem;
+  }
+
+  .plan-table tbody td::before {
+    font-size: 0.7rem;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import {
   downloadPlanReportFile,
@@ -19,6 +19,12 @@ const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const prorectorCategory = ref('pending')
+const yearTrackRef = ref(null)
+const canYearScrollLeft = ref(false)
+const canYearScrollRight = ref(false)
+const tableWrapRef = ref(null)
+const canTableScrollLeft = ref(false)
+const canTableScrollRight = ref(false)
 
 const reviewModalOpen = ref(false)
 const reviewMode = ref('approve')
@@ -54,6 +60,77 @@ const pageSubtitle = computed(() => {
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function updateYearScrollState() {
+  const track = yearTrackRef.value
+  if (!track) {
+    canYearScrollLeft.value = false
+    canYearScrollRight.value = false
+    return
+  }
+
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth)
+  canYearScrollLeft.value = track.scrollLeft > 4
+  canYearScrollRight.value = track.scrollLeft < maxScroll - 4
+}
+
+function scrollYearTrack(direction) {
+  const track = yearTrackRef.value
+  if (!track) {
+    return
+  }
+
+  const offset = Math.max(180, Math.floor(track.clientWidth * 0.55))
+  track.scrollBy({
+    left: direction * offset,
+    behavior: 'smooth'
+  })
+}
+
+function handleYearWheel(event) {
+  const track = yearTrackRef.value
+  if (!track) {
+    return
+  }
+
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+    return
+  }
+
+  track.scrollLeft += event.deltaY
+}
+
+function updateTableScrollState() {
+  const wrap = tableWrapRef.value
+  if (!wrap) {
+    canTableScrollLeft.value = false
+    canTableScrollRight.value = false
+    return
+  }
+
+  const maxScroll = Math.max(0, wrap.scrollWidth - wrap.clientWidth)
+  canTableScrollLeft.value = wrap.scrollLeft > 4
+  canTableScrollRight.value = wrap.scrollLeft < maxScroll - 4
+}
+
+function handleTableWheel(event) {
+  const wrap = tableWrapRef.value
+  if (!wrap) {
+    return
+  }
+
+  const hasHorizontalOverflow = wrap.scrollWidth > wrap.clientWidth + 1
+  if (!hasHorizontalOverflow) {
+    return
+  }
+
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+    return
+  }
+
+  event.preventDefault()
+  wrap.scrollLeft += event.deltaY
 }
 
 function formatPlannedValue(value, unit) {
@@ -106,6 +183,9 @@ async function loadYears() {
   if (!selectedYear.value && years.value.length > 0) {
     selectedYear.value = String(years.value[years.value.length - 1])
   }
+
+  await nextTick()
+  updateYearScrollState()
 }
 
 async function loadRows() {
@@ -123,6 +203,8 @@ async function loadRows() {
 
   const response = await fetchPlanReports(selectedYear.value, options)
   rows.value = response.items ?? []
+  await nextTick()
+  updateTableScrollState()
 }
 
 async function initialize() {
@@ -142,8 +224,13 @@ async function initialize() {
   }
 }
 
-async function handleYearChange(event) {
-  selectedYear.value = event.target.value
+async function selectYear(yearValue) {
+  const nextYear = String(yearValue ?? '').trim()
+  if (!nextYear || selectedYear.value === nextYear) {
+    return
+  }
+
+  selectedYear.value = nextYear
   loading.value = true
   clearMessages()
 
@@ -380,6 +467,13 @@ async function submitResubmittedReport() {
 
 onMounted(() => {
   initialize()
+  window.addEventListener('resize', updateYearScrollState)
+  window.addEventListener('resize', updateTableScrollState)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateYearScrollState)
+  window.removeEventListener('resize', updateTableScrollState)
 })
 </script>
 
@@ -392,15 +486,62 @@ onMounted(() => {
     />
 
     <div class="panel panel-strong toolbar-panel execution-toolbar">
-      <label class="execution-year-picker">
-        <span>Год</span>
-        <select :value="selectedYear" :disabled="loading || !hasYears" @change="handleYearChange">
-          <option v-if="!hasYears" value="">Нет годов</option>
-          <option v-for="year in years" :key="year" :value="String(year)">
-            {{ year }}
-          </option>
-        </select>
-      </label>
+      <div class="execution-toolbar-top">
+        <div class="execution-year-strip">
+          <div class="execution-year-strip-head">
+            <span class="execution-year-label">Год</span>
+            <div class="execution-year-nav">
+              <button
+                class="btn btn-ghost year-nav-btn"
+                type="button"
+                :disabled="!canYearScrollLeft"
+                @click="scrollYearTrack(-1)"
+              >
+                ←
+              </button>
+              <button
+                class="btn btn-ghost year-nav-btn"
+                type="button"
+                :disabled="!canYearScrollRight"
+                @click="scrollYearTrack(1)"
+              >
+                →
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="year-strip-shell"
+            :class="{
+              'has-left-fade': canYearScrollLeft,
+              'has-right-fade': canYearScrollRight
+            }"
+          >
+            <div
+              ref="yearTrackRef"
+              class="year-track"
+              @scroll="updateYearScrollState"
+              @wheel.prevent="handleYearWheel"
+            >
+              <button
+                v-for="year in years"
+                :key="`execution-year-${year}`"
+                type="button"
+                class="year-tab"
+                :class="{ 'is-active': String(year) === selectedYear }"
+                @click="selectYear(year)"
+              >
+                {{ year }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="execution-summary-card execution-summary-compact">
+          <span class="kicker">Rows</span>
+          <strong>{{ rows.length }}</strong>
+        </div>
+      </div>
 
       <div v-if="isProrector" class="execution-categories">
         <button
@@ -419,11 +560,6 @@ onMounted(() => {
         >
           Rejected
         </button>
-      </div>
-
-      <div class="execution-summary-card">
-        <span class="kicker">Rows</span>
-        <strong>{{ rows.length }}</strong>
       </div>
     </div>
 
@@ -457,13 +593,22 @@ onMounted(() => {
         </template>
       </div>
 
-      <div v-else-if="isAdmin" class="table-wrap">
+      <div
+        v-else-if="isAdmin"
+        ref="tableWrapRef"
+        class="table-wrap execution-table-wrap"
+        :class="{
+          'has-left-fade': canTableScrollLeft,
+          'has-right-fade': canTableScrollRight
+        }"
+        @scroll="updateTableScrollState"
+        @wheel="handleTableWheel"
+      >
         <table class="table execution-table">
           <thead>
             <tr>
               <th>№</th>
               <th>Целевой индикатор</th>
-              <th>Мән</th>
               <th>Срок исполнения</th>
               <th>Ответственные</th>
               <th>Выполнение индикатора</th>
@@ -473,12 +618,14 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.id">
-              <td class="number-cell">{{ index + 1 }}</td>
-              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
-              <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
-              <td>{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty">{{ row.responsible || '—' }}</td>
-              <td>
+              <td class="number-cell" data-label="№">{{ index + 1 }}</td>
+              <td data-label="Целевой индикатор">
+                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
+              </td>
+              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
+              <td data-label="Выполнение индикатора">
                 <div class="report-card">
                   <p class="report-text">{{ row.report_text || '—' }}</p>
                   <div class="files-list">
@@ -507,12 +654,12 @@ onMounted(() => {
                   </p>
                 </div>
               </td>
-              <td>
+              <td data-label="Статус">
                 <span class="status-pill" :class="`status-${row.status}`">
                   {{ statusLabel(row.status) }}
                 </span>
               </td>
-              <td class="actions-cell">
+              <td class="actions-cell" data-label="Решение">
                 <template v-if="canReviewRow(row)">
                   <button class="btn btn-primary action-btn" type="button" @click="openApproveModal(row)">
                     Қабылдау
@@ -528,13 +675,22 @@ onMounted(() => {
         </table>
       </div>
 
-      <div v-else class="table-wrap">
+      <div
+        v-else
+        ref="tableWrapRef"
+        class="table-wrap execution-table-wrap"
+        :class="{
+          'has-left-fade': canTableScrollLeft,
+          'has-right-fade': canTableScrollRight
+        }"
+        @scroll="updateTableScrollState"
+        @wheel="handleTableWheel"
+      >
         <table class="table execution-table execution-table-prorector">
           <thead>
             <tr>
               <th>№</th>
               <th>Целевой индикатор</th>
-              <th>Мән</th>
               <th>Срок исполнения</th>
               <th>Ответственные</th>
               <th v-if="isRejectedCategory">Причина Rejected</th>
@@ -546,16 +702,18 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.id">
-              <td class="number-cell">{{ index + 1 }}</td>
-              <td class="text-pretty">{{ row.development_indicator || '—' }}</td>
-              <td>{{ formatPlannedValue(row.planned_value, row.unit) }}</td>
-              <td>{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty">{{ row.responsible || '—' }}</td>
-              <td v-if="isRejectedCategory" class="text-pretty">{{ row.review_note || '—' }}</td>
-              <td v-else>
+              <td class="number-cell" data-label="№">{{ index + 1 }}</td>
+              <td data-label="Целевой индикатор">
+                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
+              </td>
+              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
+              <td v-if="isRejectedCategory" class="text-pretty" data-label="Причина Rejected">{{ row.review_note || '—' }}</td>
+              <td v-else data-label="Статус">
                 <span class="status-pill status-pending">На проверке</span>
               </td>
-              <td>
+              <td data-label="Алдыңғы отчет">
                 <div class="report-card">
                   <p class="report-text">{{ row.report_text || '—' }}</p>
                   <p class="meta">
@@ -563,7 +721,7 @@ onMounted(() => {
                   </p>
                 </div>
               </td>
-              <td>
+              <td data-label="Құжаттар">
                 <div class="files-list">
                   <button
                     v-for="file in row.files"
@@ -577,7 +735,7 @@ onMounted(() => {
                   <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
                 </div>
               </td>
-              <td>
+              <td data-label="Әрекет">
                 <button
                   v-if="isRejectedCategory"
                   class="btn btn-primary action-btn"
@@ -687,11 +845,124 @@ onMounted(() => {
 
 <style scoped>
 .execution-toolbar {
-  justify-content: space-between;
+  display: grid;
+  gap: 0.78rem;
+  align-items: stretch;
 }
 
-.execution-year-picker {
-  min-width: 13rem;
+.execution-toolbar-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.95rem;
+}
+
+.execution-year-strip {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  width: min(100%, 940px);
+}
+
+.execution-year-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.execution-year-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.execution-year-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.year-nav-btn {
+  min-height: 2rem;
+  padding: 0.35rem 0.62rem;
+}
+
+.year-strip-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background: rgba(255, 255, 255, 0.86);
+  max-width: 100%;
+}
+
+.year-strip-shell::before,
+.year-strip-shell::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.year-strip-shell::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.year-strip-shell::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.year-strip-shell.has-left-fade::before {
+  opacity: 1;
+}
+
+.year-strip-shell.has-right-fade::after {
+  opacity: 1;
+}
+
+.year-track {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  padding: 0.3rem;
+  scrollbar-width: none;
+}
+
+.year-track::-webkit-scrollbar {
+  display: none;
+}
+
+.year-tab {
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  color: #324754;
+  min-height: 1.88rem;
+  min-width: 3.4rem;
+  padding: 0.28rem 0.68rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.year-tab.is-active {
+  border-color: rgba(17, 120, 111, 0.5);
+  background: linear-gradient(135deg, rgba(17, 120, 111, 0.2), rgba(17, 120, 111, 0.1));
+  color: #0f5e57;
 }
 
 .execution-categories {
@@ -717,12 +988,59 @@ onMounted(() => {
   letter-spacing: -0.05em;
 }
 
+.execution-summary-compact {
+  min-width: 90px;
+  justify-items: end;
+  text-align: right;
+}
+
 .execution-table-card {
   padding: 1.2rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.execution-table-wrap {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  isolation: isolate;
+}
+
+.execution-table-wrap::before,
+.execution-table-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.execution-table-wrap::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.execution-table-wrap::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.execution-table-wrap.has-left-fade::before {
+  opacity: 1;
+}
+
+.execution-table-wrap.has-right-fade::after {
+  opacity: 1;
 }
 
 .execution-table {
-  min-width: 1340px;
+  min-width: 1260px;
 }
 
 .number-cell {
@@ -734,6 +1052,19 @@ onMounted(() => {
 .report-card {
   display: grid;
   gap: 0.55rem;
+}
+
+.planned-value-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.35rem;
+  border: 1px solid #d8e0ea;
+  border-radius: 999px;
+  padding: 0.2rem 0.58rem;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .report-text {
@@ -807,7 +1138,112 @@ onMounted(() => {
 
 @media (max-width: 1024px) {
   .execution-toolbar {
+    gap: 0.7rem;
+  }
+
+  .execution-toolbar-top {
+    grid-template-columns: 1fr;
     align-items: stretch;
+    gap: 0.72rem;
+  }
+
+  .execution-year-strip {
+    width: 100%;
+  }
+
+  .execution-categories {
+    width: 100%;
+  }
+
+  .execution-summary-compact {
+    justify-items: start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 980px) {
+  .execution-table-card {
+    padding: 0.95rem;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .execution-table-wrap::before,
+  .execution-table-wrap::after {
+    display: none;
+  }
+
+  .execution-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .execution-table thead {
+    display: none;
+  }
+
+  .execution-table tbody {
+    display: grid;
+    gap: 0.82rem;
+  }
+
+  .execution-table tbody tr {
+    display: block;
+    padding: 0.72rem 0.86rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .execution-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(130px, 38%) 1fr;
+    gap: 0.56rem;
+    padding: 0.5rem 0.1rem;
+    border-bottom: 1px dashed rgba(16, 33, 42, 0.12);
+  }
+
+  .execution-table tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .execution-table tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .number-cell {
+    width: auto;
+    text-align: left;
+  }
+
+  .actions-cell {
+    min-width: 0;
+  }
+
+  .year-track {
+    padding: 0.32rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .execution-table tbody td {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .execution-table tbody td::before {
+    font-size: 0.68rem;
   }
 }
 </style>
