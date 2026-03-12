@@ -10,7 +10,7 @@ defineProps({
   },
   eyebrow: {
     type: String,
-    default: 'Operational Planning'
+    default: 'Операционное планирование'
   }
 })
 </script>

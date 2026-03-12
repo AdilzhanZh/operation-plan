@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { useLocale } from '../composables/useLocale'
 import { useAuthStore } from '../store/auth'
 import {
   createPlanningPeriodIndicator,
@@ -10,6 +11,7 @@ import {
 } from '../services/planningPeriod.service'
 
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
 let localYearRowId = 0
 
@@ -63,26 +65,26 @@ function buildYearValuesPayload(yearRows) {
 
     if (!rawYear || !rawValue) {
       return {
-        error: 'Жыл мен мән бірге толтырылуы керек'
+        error: tr('Год и значение нужно заполнять вместе', 'Жыл мен мән бірге толтырылуы керек')
       }
     }
 
     const year = Number(rawYear)
     if (!Number.isInteger(year)) {
       return {
-        error: `Жыл дұрыс емес: ${rawYear}`
+        error: tr(`Некорректный год: ${rawYear}`, `Жыл дұрыс емес: ${rawYear}`)
       }
     }
 
     if (year < 2000 || year > 2100) {
       return {
-        error: `Жыл диапазоны: 2000-2100 (${year})`
+        error: tr(`Диапазон года: 2000-2100 (${year})`, `Жыл диапазоны: 2000-2100 (${year})`)
       }
     }
 
     if (payload[String(year)] !== undefined) {
       return {
-        error: `Қайталанатын жыл: ${year}`
+        error: tr(`Повторяющийся год: ${year}`, `Қайталанатын жыл: ${year}`)
       }
     }
 
@@ -91,7 +93,7 @@ function buildYearValuesPayload(yearRows) {
 
   if (Object.keys(payload).length === 0) {
     return {
-      error: 'Кемінде бір жыл мен мән енгізіңіз'
+      error: tr('Добавьте минимум один год и значение', 'Кемінде бір жыл мен мән енгізіңіз')
     }
   }
 
@@ -291,7 +293,7 @@ async function loadRows() {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Мәліметтерді жүктеу мүмкін болмады'
+      ?? tr('Не удалось загрузить данные', 'Мәліметтерді жүктеу мүмкін болмады')
   } finally {
     loading.value = false
   }
@@ -335,7 +337,7 @@ async function importFromExcel() {
   clearMessages()
 
   if (!importFile.value) {
-    errorMessage.value = 'Excel файл таңдаңыз (.xlsx)'
+    errorMessage.value = tr('Выберите Excel файл (.xlsx)', 'Excel файл таңдаңыз (.xlsx)')
     return
   }
 
@@ -343,7 +345,10 @@ async function importFromExcel() {
 
   try {
     const response = await importPlanningPeriodExcel(importFile.value)
-    successMessage.value = `Импорт аяқталды: жаңа ${response?.created ?? 0}, жаңартылды ${response?.updated ?? 0}, өткізіліп жіберілді ${response?.skipped ?? 0}`
+    successMessage.value = tr(
+      `Импорт завершен: новых ${response?.created ?? 0}, обновлено ${response?.updated ?? 0}, пропущено ${response?.skipped ?? 0}`,
+      `Импорт аяқталды: жаңа ${response?.created ?? 0}, жаңартылды ${response?.updated ?? 0}, өткізіліп жіберілді ${response?.skipped ?? 0}`
+    )
     importFile.value = null
     importFileName.value = ''
     importInputKey.value += 1
@@ -352,7 +357,7 @@ async function importFromExcel() {
     errorMessage.value = requestError?.response?.data?.error
       ?? (typeof requestError?.response?.data === 'string' ? requestError.response.data : null)
       ?? requestError?.message
-      ?? 'Импорт кезінде қате болды'
+      ?? tr('Ошибка при импорте', 'Импорт кезінде қате болды')
   } finally {
     importing.value = false
   }
@@ -395,7 +400,7 @@ async function createRow() {
   const unit = createForm.unit.trim()
 
   if (!targetIndicator || !unit) {
-    errorMessage.value = 'Целевой индикатор және ед. изм. толтырыңыз'
+    errorMessage.value = tr('Заполните целевой индикатор и ед. изм.', 'Целевой индикатор және ед. изм. толтырыңыз')
     return
   }
 
@@ -415,13 +420,13 @@ async function createRow() {
     })
 
     resetCreateForm()
-    successMessage.value = 'Көрсеткіш сәтті қосылды'
+    successMessage.value = tr('Показатель успешно добавлен', 'Көрсеткіш сәтті қосылды')
     await loadRows()
   } catch (requestError) {
     errorMessage.value = requestError?.response?.data?.error
       ?? (typeof requestError?.response?.data === 'string' ? requestError.response.data : null)
       ?? requestError?.message
-      ?? 'Қосу кезінде қате болды'
+      ?? tr('Ошибка при добавлении', 'Қосу кезінде қате болды')
   } finally {
     creating.value = false
   }
@@ -442,7 +447,7 @@ async function saveEdit() {
   const unit = editForm.unit.trim()
 
   if (!targetIndicator || !unit) {
-    errorMessage.value = 'Целевой индикатор және ед. изм. толтырыңыз'
+    errorMessage.value = tr('Заполните целевой индикатор и ед. изм.', 'Целевой индикатор және ед. изм. толтырыңыз')
     return
   }
 
@@ -461,14 +466,14 @@ async function saveEdit() {
       year_values: payload
     })
 
-    successMessage.value = 'Өзгерістер сақталды'
+    successMessage.value = tr('Изменения сохранены', 'Өзгерістер сақталды')
     editingId.value = null
     await loadRows()
   } catch (requestError) {
     errorMessage.value = requestError?.response?.data?.error
       ?? (typeof requestError?.response?.data === 'string' ? requestError.response.data : null)
       ?? requestError?.message
-      ?? 'Сақтау кезінде қате болды'
+      ?? tr('Ошибка при сохранении', 'Сақтау кезінде қате болды')
   } finally {
     saving.value = false
   }
@@ -480,9 +485,9 @@ onMounted(loadRows)
 <template>
   <section class="planning-page page">
     <PageHeader
-      title="Плановый период по годам"
-      subtitle="Управление целевыми индикаторами по годам, импортом Excel и диапазонной фильтрацией в едином рабочем экране"
-      eyebrow="Planning"
+      :title="tr('Плановый период по годам', 'Жылдар бойынша жоспарлы кезең')"
+      :subtitle="tr('Управление целевыми индикаторами по годам, импортом Excel и диапазонной фильтрацией в едином рабочем экране', 'Жылдар бойынша мақсатты индикаторларды, Excel импортын және диапазон сүзгісін бір экранда басқару')"
+      :eyebrow="tr('Планирование', 'Жоспарлау')"
     />
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
@@ -492,25 +497,25 @@ onMounted(loadRows)
       <section class="panel panel-strong planning-card">
         <div class="panel-header">
           <div>
-            <h3 class="panel-title">Диапазон годов</h3>
-            <p class="panel-subtitle">Оставьте поля пустыми, чтобы видеть весь плановый период сразу.</p>
+            <h3 class="panel-title">{{ tr('Диапазон годов', 'Жылдар диапазоны') }}</h3>
+            <p class="panel-subtitle">{{ tr('Оставьте поля пустыми, чтобы видеть весь плановый период сразу.', 'Барлық жоспарлы кезеңді көру үшін өрістерді бос қалдырыңыз.') }}</p>
           </div>
-          <span class="kicker">Filter</span>
+          <span class="kicker">{{ tr('Фильтр', 'Сүзгі') }}</span>
         </div>
 
         <div class="planning-filter-grid">
           <label>
-            Бастапқы жыл
+            {{ tr('Начальный год', 'Бастапқы жыл') }}
             <input v-model="periodFromYear" type="number" min="2000" max="2100" placeholder="2023" />
           </label>
 
           <label>
-            Соңғы жыл
+            {{ tr('Конечный год', 'Соңғы жыл') }}
             <input v-model="periodToYear" type="number" min="2000" max="2100" placeholder="2026" />
           </label>
 
           <button type="button" class="btn btn-ghost planning-inline-btn" @click="clearPeriodFilter">
-            Фильтрді тазалау
+            {{ tr('Очистить фильтр', 'Фильтрді тазалау') }}
           </button>
         </div>
       </section>
@@ -518,10 +523,10 @@ onMounted(loadRows)
       <section v-if="isAdmin" class="panel panel-warning planning-card">
         <div class="panel-header">
           <div>
-            <h3 class="panel-title">Excel импорт</h3>
-            <p class="panel-subtitle">Формат файла: `.xlsx`, обязательные колонки: индикатор, единица измерения и годы.</p>
+            <h3 class="panel-title">{{ tr('Excel импорт', 'Excel импорт') }}</h3>
+            <p class="panel-subtitle">{{ tr('Формат файла: `.xlsx`, обязательные колонки: индикатор, единица измерения и годы.', 'Файл форматы: `.xlsx`, міндетті бағандар: индикатор, өлшем бірлігі және жылдар.') }}</p>
           </div>
-          <span class="kicker">Import</span>
+          <span class="kicker">{{ tr('Импорт', 'Импорт') }}</span>
         </div>
 
         <div class="planning-import-grid">
@@ -532,35 +537,35 @@ onMounted(loadRows)
             @change="handleImportFileChange"
           />
           <button type="button" class="btn btn-accent planning-inline-btn" :disabled="importing" @click="importFromExcel">
-            {{ importing ? 'Импортталуда...' : 'Импорт жасау' }}
+            {{ importing ? tr('Импорт...', 'Импортталуда...') : tr('Импортировать', 'Импорт жасау') }}
           </button>
         </div>
 
-        <p v-if="importFileName" class="planning-note">Таңдалған файл: {{ importFileName }}</p>
+        <p v-if="importFileName" class="planning-note">{{ tr('Выбранный файл:', 'Таңдалған файл:') }} {{ importFileName }}</p>
       </section>
     </div>
 
     <section v-if="isAdmin" class="panel panel-accent planning-card">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title">Новый показатель</h3>
-          <p class="panel-subtitle">Сначала задайте формулировку и единицу измерения, затем заполните значения по годам.</p>
+          <h3 class="panel-title">{{ tr('Новый показатель', 'Жаңа көрсеткіш') }}</h3>
+          <p class="panel-subtitle">{{ tr('Сначала задайте формулировку и единицу измерения, затем заполните значения по годам.', 'Алдымен тұжырым мен өлшем бірлігін беріңіз, содан кейін жылдар бойынша мәндерді толтырыңыз.') }}</p>
         </div>
-        <span class="kicker">Create</span>
+        <span class="kicker">{{ tr('Создать', 'Құру') }}</span>
       </div>
 
       <div class="planning-main-fields">
         <label>
-          Целевой индикатор
+          {{ tr('Целевой индикатор', 'Мақсатты индикатор') }}
           <textarea
             v-model="createForm.targetIndicator"
             rows="3"
-            placeholder="Мысалы: Доля трудоустроенных выпускников"
+            :placeholder="tr('Например: Доля трудоустроенных выпускников', 'Мысалы: Доля трудоустроенных выпускников')"
           />
         </label>
 
         <label>
-          ед. изм.
+          {{ tr('ед. изм.', 'өлш. бірл.') }}
           <input
             v-model="createForm.unit"
             type="text"
@@ -572,12 +577,12 @@ onMounted(loadRows)
       <div class="planning-year-editor">
         <div class="planning-year-row" v-for="yearRow in createForm.years" :key="`create-${yearRow.localId}`">
           <label>
-            Жыл
+            {{ tr('Год', 'Жыл') }}
             <input v-model="yearRow.year" type="number" min="2000" max="2100" placeholder="2023" />
           </label>
 
           <label>
-            Мән
+            {{ tr('Значение', 'Мән') }}
             <input v-model="yearRow.value" type="text" inputmode="decimal" placeholder="76" />
           </label>
 
@@ -587,7 +592,7 @@ onMounted(loadRows)
             @click="removeCreateYear(yearRow.localId)"
             :disabled="createForm.years.length <= 1"
           >
-            Жылды өшіру
+            {{ tr('Удалить год', 'Жылды өшіру') }}
           </button>
         </div>
 
@@ -597,40 +602,40 @@ onMounted(loadRows)
           class="btn btn-ghost"
           @click="addCreateYear"
         >
-          + Добавить год
+          {{ tr('+ Добавить год', '+ Жыл қосу') }}
         </button>
       </div>
 
       <div class="planning-actions">
         <button type="button" class="btn btn-primary" :disabled="creating" @click="createRow">
-          {{ creating ? 'Сақталуда...' : 'Создать строку' }}
+          {{ creating ? tr('Сохранение...', 'Сақталуда...') : tr('Создать строку', 'Жол құру') }}
         </button>
       </div>
     </section>
 
     <p v-else class="message message-info">
-      Бұл бөлім prorector үшін тек оқу режимінде қолжетімді.
+      {{ tr('Этот раздел для prorector доступен только в режиме просмотра.', 'Бұл бөлім prorector үшін тек оқу режимінде қолжетімді.') }}
     </p>
 
     <section class="panel panel-strong planning-card">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title">Показатели планового периода</h3>
-          <p class="panel-subtitle">Таблица показывает только те годы, которые попадают в текущий диапазон фильтра.</p>
+          <h3 class="panel-title">{{ tr('Показатели планового периода', 'Жоспарлы кезең көрсеткіштері') }}</h3>
+          <p class="panel-subtitle">{{ tr('Таблица показывает только те годы, которые попадают в текущий диапазон фильтра.', 'Кесте ағымдағы сүзгі диапазонына кіретін жылдарды ғана көрсетеді.') }}</p>
         </div>
-        <span class="kicker">{{ filteredRows.length }} rows</span>
+        <span class="kicker">{{ filteredRows.length }} {{ tr('строк', 'жол') }}</span>
       </div>
 
-      <div v-if="loading" class="empty-state">Жүктелуде...</div>
+      <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
       <template v-else>
         <div v-if="hasFilteredRows" class="table-wrap planning-table-wrap">
           <table class="table planning-table">
             <thead>
               <tr>
-                <th class="col-sticky-indicator">Целевой индикатор</th>
-                <th class="col-sticky-unit">ед. изм.</th>
+                <th class="col-sticky-indicator">{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
+                <th class="col-sticky-unit">{{ tr('ед. изм.', 'өлш. бірл.') }}</th>
                 <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
-                <th v-if="isAdmin">Әрекет</th>
+                <th v-if="isAdmin">{{ tr('Действие', 'Әрекет') }}</th>
               </tr>
             </thead>
 
@@ -642,9 +647,9 @@ onMounted(loadRows)
                     :class="{ 'is-empty': textPreview(row.target_indicator) === '—' }"
                     role="button"
                     tabindex="0"
-                    @click="openReadModal('Целевой индикатор', row.target_indicator)"
-                    @keyup.enter="openReadModal('Целевой индикатор', row.target_indicator)"
-                    @keyup.space.prevent="openReadModal('Целевой индикатор', row.target_indicator)"
+                    @click="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.target_indicator)"
+                    @keyup.enter="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.target_indicator)"
+                    @keyup.space.prevent="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.target_indicator)"
                   >
                     <span class="table-text-preview-content">{{ textPreview(row.target_indicator) }}</span>
                   </div>
@@ -655,7 +660,7 @@ onMounted(loadRows)
                 </td>
                 <td v-if="isAdmin">
                   <button type="button" class="btn btn-ghost planning-table-btn" @click="startEdit(row)">
-                    Өзгерту
+                    {{ tr('Изменить', 'Өзгерту') }}
                   </button>
                 </td>
               </tr>
@@ -664,11 +669,11 @@ onMounted(loadRows)
         </div>
 
         <div v-else-if="hasRows" class="empty-state">
-          Таңдалған период бойынша индикатор табылмады.
+          {{ tr('По выбранному периоду индикаторы не найдены.', 'Таңдалған период бойынша индикатор табылмады.') }}
         </div>
 
         <div v-else class="empty-state">
-          Кесте әзірге бос. Бірінші жолды қосқаннан кейін кесте осы жерде көрінеді.
+          {{ tr('Таблица пока пустая. После добавления первой строки она появится здесь.', 'Кесте әзірге бос. Бірінші жолды қосқаннан кейін кесте осы жерде көрінеді.') }}
         </div>
       </template>
     </section>
@@ -680,24 +685,24 @@ onMounted(loadRows)
           {{ readModalText }}
         </div>
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" @click="closeReadModal">Жабу</button>
+          <button type="button" class="btn btn-primary" @click="closeReadModal">{{ tr('Закрыть', 'Жабу') }}</button>
         </div>
       </div>
     </div>
 
     <div v-if="isAdmin && editingId" class="modal-backdrop" @click.self="cancelEdit">
       <div class="modal-card planning-edit-modal">
-        <h3 class="modal-title">Редактирование показателя</h3>
-        <p class="modal-subtitle">Изменения сохраняются в общей таблице сразу после подтверждения.</p>
+        <h3 class="modal-title">{{ tr('Редактирование показателя', 'Көрсеткішті өзгерту') }}</h3>
+        <p class="modal-subtitle">{{ tr('Изменения сохраняются в общей таблице сразу после подтверждения.', 'Өзгерістер растаудан кейін кестеге бірден сақталады.') }}</p>
 
         <div class="planning-main-fields">
           <label>
-            Целевой индикатор
+            {{ tr('Целевой индикатор', 'Мақсатты индикатор') }}
             <textarea v-model="editForm.targetIndicator" rows="3" />
           </label>
 
           <label>
-            ед. изм.
+            {{ tr('ед. изм.', 'өлш. бірл.') }}
             <input v-model="editForm.unit" type="text" />
           </label>
         </div>
@@ -705,12 +710,12 @@ onMounted(loadRows)
         <div class="planning-year-editor planning-year-editor-modal">
           <div class="planning-year-row" v-for="yearRow in editForm.years" :key="`edit-${yearRow.localId}`">
             <label>
-              Жыл
+              {{ tr('Год', 'Жыл') }}
               <input v-model="yearRow.year" type="number" min="2000" max="2100" />
             </label>
 
             <label>
-              Мән
+              {{ tr('Значение', 'Мән') }}
               <input v-model="yearRow.value" type="text" inputmode="decimal" />
             </label>
 
@@ -720,7 +725,7 @@ onMounted(loadRows)
               @click="removeEditYear(yearRow.localId)"
               :disabled="editForm.years.length <= 1"
             >
-              Жылды өшіру
+              {{ tr('Удалить год', 'Жылды өшіру') }}
             </button>
           </div>
 
@@ -730,14 +735,14 @@ onMounted(loadRows)
             class="btn btn-ghost"
             @click="addEditYear"
           >
-            + Добавить год
+            {{ tr('+ Добавить год', '+ Жыл қосу') }}
           </button>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" @click="cancelEdit">Болдырмау</button>
+          <button type="button" class="btn btn-ghost" @click="cancelEdit">{{ tr('Отмена', 'Болдырмау') }}</button>
           <button type="button" class="btn btn-primary" :disabled="saving" @click="saveEdit">
-            {{ saving ? 'Сақталуда...' : 'Сақтау' }}
+            {{ saving ? tr('Сохранение...', 'Сақталуда...') : tr('Сохранить', 'Сақтау') }}
           </button>
         </div>
       </div>

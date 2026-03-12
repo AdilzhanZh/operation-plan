@@ -1,36 +1,45 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import LanguageSwitch from './components/LanguageSwitch.vue'
+import { useLocale } from './composables/useLocale'
 import { logoutRequest } from './services/auth.service'
 import { useAuthStore } from './store/auth'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
-const navigation = [
-  { name: 'Dashboard', description: 'Обзор статусов и сроков', to: { name: 'dashboard' } },
-  { name: 'Profile', description: 'Аккаунт и настройки доступа', to: { name: 'profile' } },
-  { name: 'Users', description: 'Пользователи системы', to: { name: 'users' }, roles: ['admin'] },
-  { name: 'Plans', description: 'Рабочие планы по текущему году', to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
-  { name: 'Planning Period', description: 'Целевые показатели по годам', to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
-  { name: 'Program Execution', description: 'Отчеты и согласование', to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
-]
-
-const roleLabels = {
-  admin: 'Administrator',
-  prorector: 'Prorector',
-  viewer: 'Viewer'
-}
+const navigation = computed(() => [
+  { name: tr('Панель управления', 'Басқару панелі'), description: tr('Обзор статусов и сроков', 'Мәртебелер мен мерзімдер шолуы'), to: { name: 'dashboard' } },
+  { name: tr('Профиль', 'Профиль'), description: tr('Аккаунт и настройки доступа', 'Аккаунт пен қолжетімділік баптаулары'), to: { name: 'profile' } },
+  { name: tr('Пользователи', 'Пайдаланушылар'), description: tr('Пользователи системы', 'Жүйе пайдаланушылары'), to: { name: 'users' }, roles: ['admin'] },
+  { name: tr('Планы', 'Жоспарлар'), description: tr('Рабочие планы по текущему году', 'Ағымдағы жылға арналған жұмыс жоспарлары'), to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
+  { name: tr('Плановый период', 'Жоспарлы кезең'), description: tr('Целевые показатели по годам', 'Жылдар бойынша мақсатты индикаторлар'), to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
+  { name: tr('Выполнение программы', 'Бағдарлама орындалуы'), description: tr('Отчеты и согласование', 'Есептер және келісу'), to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
+])
 
 const isAuthPage = computed(() => route.name === 'login' || route.name === 'register')
 const visibleNavigation = computed(() => {
   const currentRole = authStore.user?.role
-  return navigation.filter((item) => !item.roles?.length || item.roles.includes(currentRole))
+  return navigation.value.filter((item) => !item.roles?.length || item.roles.includes(currentRole))
 })
 
-const currentUserName = computed(() => authStore.user?.full_name || authStore.user?.username || 'Oper Plan User')
-const currentUserRole = computed(() => roleLabels[authStore.user?.role] ?? authStore.user?.role ?? 'Workspace member')
+const currentUserName = computed(() => authStore.user?.full_name || authStore.user?.username || tr('Пользователь Oper Plan', 'Oper Plan пайдаланушысы'))
+const currentUserRole = computed(() => {
+  const role = String(authStore.user?.role ?? '')
+  if (role === 'admin') {
+    return tr('Администратор', 'Әкімші')
+  }
+  if (role === 'prorector') {
+    return tr('Проректор', 'Проректор')
+  }
+  if (role === 'viewer') {
+    return tr('Наблюдатель', 'Бақылаушы')
+  }
+  return role || tr('Участник рабочей области', 'Жұмыс кеңістігінің қатысушысы')
+})
 
 async function logout() {
   try {
@@ -52,18 +61,21 @@ async function logout() {
   <div v-else class="app-shell">
     <aside class="app-sidebar">
       <div class="sidebar-top">
-        <span class="sidebar-chip">Operational Planning Platform</span>
+        <span class="sidebar-chip">{{ tr('Платформа операционного планирования', 'Операциялық жоспарлау платформасы') }}</span>
         <h1 class="brand">Oper Plan</h1>
-        <p class="subtitle">Korkyt Ata University workspace for planning, execution and review.</p>
+        <p class="subtitle">{{ tr('Рабочее пространство университета Коркыт Ата для планирования, исполнения и контроля.', 'Қорқыт Ата университетінің жоспарлау, орындау және бақылау жұмыс кеңістігі.') }}</p>
       </div>
 
       <section class="sidebar-profile">
-        <span class="sidebar-label">Текущий аккаунт</span>
+        <span class="sidebar-label">{{ tr('Текущий аккаунт', 'Ағымдағы аккаунт') }}</span>
         <strong>{{ currentUserName }}</strong>
         <span>{{ currentUserRole }}</span>
+        <div class="sidebar-lang">
+          <LanguageSwitch />
+        </div>
       </section>
 
-      <nav class="sidebar-nav" aria-label="Основная навигация">
+      <nav class="sidebar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">
         <RouterLink
           v-for="item in visibleNavigation"
           :key="item.name"
@@ -76,8 +88,8 @@ async function logout() {
       </nav>
 
       <div class="sidebar-footer">
-        <p class="sidebar-note">Единая среда для сроков, ответственных и контрольных отчетов.</p>
-        <button type="button" class="btn btn-secondary sidebar-logout" @click="logout">Выйти</button>
+        <p class="sidebar-note">{{ tr('Единая среда для сроков, ответственных и контрольных отчетов.', 'Мерзімдер, жауаптылар және бақылау есептері үшін бірыңғай орта.') }}</p>
+        <button type="button" class="btn btn-secondary sidebar-logout" @click="logout">{{ tr('Выйти', 'Шығу') }}</button>
       </div>
     </aside>
 

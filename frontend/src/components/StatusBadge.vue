@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { useLocale } from '../composables/useLocale'
 
 const props = defineProps({
   status: {
@@ -7,17 +8,18 @@ const props = defineProps({
     required: true
   }
 })
+const { tr } = useLocale()
 
 const normalized = computed(() => String(props.status ?? '').toLowerCase())
 
-const labels = {
-  created: 'Создан',
-  in_progress: 'В работе',
-  on_review: 'На проверке',
-  completed: 'Завершен',
-  overdue: 'Просрочен',
-  returned: 'Возвращен'
-}
+const labels = computed(() => ({
+  created: tr('Создан', 'Құрылды'),
+  in_progress: tr('В работе', 'Жұмыста'),
+  on_review: tr('На проверке', 'Тексерісте'),
+  completed: tr('Завершен', 'Аяқталды'),
+  overdue: tr('Просрочен', 'Мерзімі өткен'),
+  returned: tr('Возвращен', 'Қайтарылды')
+}))
 </script>
 
 <template>

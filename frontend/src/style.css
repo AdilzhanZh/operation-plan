@@ -220,6 +220,10 @@ a {
   font-size: 0.88rem;
 }
 
+.sidebar-lang {
+  margin-top: 0.35rem;
+}
+
 .sidebar-label {
   color: rgba(244, 239, 232, 0.66);
   font-size: 0.72rem;
@@ -762,6 +766,37 @@ button:disabled,
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 33, 42, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.lang-btn {
+  min-height: 1.85rem;
+  min-width: 3.2rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.lang-btn.is-active {
+  border-color: rgba(17, 120, 111, 0.35);
+  background: linear-gradient(145deg, rgba(17, 120, 111, 0.2), rgba(17, 120, 111, 0.08));
+  color: #0f5e57;
 }
 
 .auth-card {

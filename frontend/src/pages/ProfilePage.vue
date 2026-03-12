@@ -2,11 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
+import { useLocale } from '../composables/useLocale'
 import { changePasswordRequest, getMeRequest } from '../services/auth.service'
 import { useAuthStore } from '../store/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -14,10 +16,11 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const showPasswordForm = ref(false)
 
-const roleLabels = {
-  admin: 'Administrator',
-  prorector: 'Prorector',
-  viewer: 'Viewer'
+function roleLabel(role) {
+  if (role === 'admin') return tr('Администратор', 'Әкімші')
+  if (role === 'prorector') return tr('Проректор', 'Проректор')
+  if (role === 'viewer') return tr('Наблюдатель', 'Бақылаушы')
+  return role
 }
 
 const form = reactive({
@@ -27,12 +30,12 @@ const form = reactive({
 })
 
 const profileFields = computed(() => [
-  { label: 'Аты', value: authStore.user?.first_name || '—' },
-  { label: 'Фамилиясы', value: authStore.user?.last_name || '—' },
-  { label: 'Тегі', value: authStore.user?.middle_name || '—' },
-  { label: 'Толық аты', value: authStore.user?.full_name || '—' },
-  { label: 'Логин', value: authStore.user?.username || '—' },
-  { label: 'Рөл', value: roleLabels[authStore.user?.role] ?? authStore.user?.role ?? '—' }
+  { label: tr('Имя', 'Аты'), value: authStore.user?.first_name || '—' },
+  { label: tr('Фамилия', 'Фамилиясы'), value: authStore.user?.last_name || '—' },
+  { label: tr('Отчество', 'Тегі'), value: authStore.user?.middle_name || '—' },
+  { label: tr('Полное имя', 'Толық аты'), value: authStore.user?.full_name || '—' },
+  { label: tr('Логин', 'Логин'), value: authStore.user?.username || '—' },
+  { label: tr('Роль', 'Рөлі'), value: roleLabel(authStore.user?.role) || '—' }
 ])
 
 function clearMessages() {
@@ -48,7 +51,7 @@ async function loadProfile() {
     const response = await getMeRequest()
     authStore.setUser(response.user)
   } catch (error) {
-    errorMessage.value = error?.response?.data?.error ?? 'Профильді жүктеу кезінде қате болды'
+    errorMessage.value = error?.response?.data?.error ?? tr('Ошибка загрузки профиля', 'Профильді жүктеу кезінде қате болды')
   } finally {
     loading.value = false
   }
@@ -67,7 +70,7 @@ async function changePassword() {
     authStore.logout()
     await router.push({ name: 'login', query: { reauth: '1' } })
   } catch (error) {
-    errorMessage.value = error?.response?.data?.error ?? 'Пароль өзгерту кезінде қате болды'
+    errorMessage.value = error?.response?.data?.error ?? tr('Ошибка при смене пароля', 'Құпиясөзді өзгерту кезінде қате болды')
   } finally {
     saving.value = false
   }
@@ -93,9 +96,9 @@ onMounted(() => {
 <template>
   <section class="profile-page">
     <PageHeader
-      title="Профиль"
-      subtitle="Личные данные пользователя и безопасная смена пароля без перехода в отдельные настройки"
-      eyebrow="Account"
+      :title="tr('Профиль', 'Профиль')"
+      :subtitle="tr('Личные данные пользователя и безопасная смена пароля без перехода в отдельные настройки', 'Пайдаланушы деректері және бөлек бетке өтпей қауіпсіз құпиясөз ауыстыру')"
+      :eyebrow="tr('Аккаунт', 'Аккаунт')"
     />
 
     <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
@@ -105,13 +108,13 @@ onMounted(() => {
       <section class="panel panel-strong profile-card">
         <div class="panel-header">
           <div>
-            <h3 class="panel-title">Карточка пользователя</h3>
-            <p class="panel-subtitle">Базовые учетные данные, роль и рабочая идентификация в системе.</p>
+            <h3 class="panel-title">{{ tr('Карточка пользователя', 'Пайдаланушы картасы') }}</h3>
+            <p class="panel-subtitle">{{ tr('Базовые учетные данные, роль и рабочая идентификация в системе.', 'Жүйедегі негізгі деректер, рөл және жұмыс идентификациясы.') }}</p>
           </div>
-          <span class="kicker">Profile</span>
+          <span class="kicker">{{ tr('Профиль', 'Профиль') }}</span>
         </div>
 
-        <div v-if="loading" class="empty-state">Жүктелуде...</div>
+        <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
         <div v-else class="info-grid">
           <div v-for="item in profileFields" :key="item.label" class="info-card">
             <span>{{ item.label }}</span>
@@ -123,41 +126,41 @@ onMounted(() => {
       <section class="panel panel-accent profile-card">
         <div class="panel-header">
           <div>
-            <h3 class="panel-title">Безопасность доступа</h3>
-            <p class="panel-subtitle">Обновление пароля выполняется здесь же, без отдельного маршрута.</p>
+            <h3 class="panel-title">{{ tr('Безопасность доступа', 'Қолжетімділік қауіпсіздігі') }}</h3>
+            <p class="panel-subtitle">{{ tr('Обновление пароля выполняется здесь же, без отдельного маршрута.', 'Құпиясөз осы жерде, бөлек маршрутсыз жаңартылады.') }}</p>
           </div>
-          <span class="kicker">Security</span>
+          <span class="kicker">{{ tr('Безопасность', 'Қауіпсіздік') }}</span>
         </div>
 
         <div v-if="!showPasswordForm" class="stack-sm">
           <p class="profile-note">
-            Меняйте пароль сразу после первого входа и каждый раз, когда доступ получает новый ответственный.
+            {{ tr('Меняйте пароль сразу после первого входа и каждый раз, когда доступ получает новый ответственный.', 'Алғашқы кіруден кейін және жаңа жауаптыға қолжетімділік берілген сайын құпиясөзді жаңартыңыз.') }}
           </p>
           <button type="button" class="btn btn-primary profile-action" @click="openPasswordForm">
-            Сменить пароль
+            {{ tr('Сменить пароль', 'Құпиясөзді ауыстыру') }}
           </button>
         </div>
 
         <form v-else class="profile-password-form" @submit.prevent="changePassword">
           <label>
-            Ескі пароль
+            {{ tr('Старый пароль', 'Ескі құпиясөз') }}
             <input v-model="form.old_password" type="password" autocomplete="current-password" required />
           </label>
           <label>
-            Жаңа пароль
+            {{ tr('Новый пароль', 'Жаңа құпиясөз') }}
             <input v-model="form.new_password" type="password" autocomplete="new-password" required />
           </label>
           <label>
-            Жаңа пароль (қайталау)
+            {{ tr('Новый пароль (повтор)', 'Жаңа құпиясөз (қайталау)') }}
             <input v-model="form.confirm_password" type="password" autocomplete="new-password" required />
           </label>
 
           <div class="profile-actions-row">
             <button type="button" class="btn btn-ghost" @click="closePasswordForm">
-              Жабу
+              {{ tr('Закрыть', 'Жабу') }}
             </button>
             <button type="submit" class="btn btn-primary" :disabled="saving">
-              {{ saving ? 'Сақталуда...' : 'Парольді ауыстыру' }}
+              {{ saving ? tr('Сохранение...', 'Сақталуда...') : tr('Обновить пароль', 'Құпиясөзді жаңарту') }}
             </button>
           </div>
         </form>

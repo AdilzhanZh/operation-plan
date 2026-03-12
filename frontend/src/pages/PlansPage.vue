@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { useLocale } from '../composables/useLocale'
 import {
   fetchPlanIndicators,
   savePlanIndicator,
@@ -10,6 +11,7 @@ import { fetchProrectorsRequest } from '../services/user.service'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
 const selectedYear = ref(String(new Date().getFullYear()))
 const rows = ref([])
@@ -247,18 +249,18 @@ function stopCountdownTicker() {
 function scheduleStatusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'not_filled') {
-    return 'Толық толтырылмаған'
+    return tr('Не заполнено полностью', 'Толық толтырылмаған')
   }
   if (normalized === 'in_progress') {
-    return 'Уақыт өтіп жатыр'
+    return tr('Время идет', 'Уақыт өтіп жатыр')
   }
   if (normalized === 'overdue') {
-    return 'Уақыты өтіп кетті'
+    return tr('Срок истек', 'Уақыты өтіп кетті')
   }
   if (normalized === 'upcoming') {
-    return 'Уақыты әлі келген жоқ'
+    return tr('Срок еще не наступил', 'Уақыты әлі келген жоқ')
   }
-  return 'Мерзім қойылмаған'
+  return tr('Срок не задан', 'Мерзім қойылмаған')
 }
 
 async function loadProrectors() {
@@ -282,7 +284,7 @@ async function initialize() {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Plans бөлімін жүктеу кезінде қате болды'
+      ?? tr('Ошибка загрузки раздела Plans', 'Plans бөлімін жүктеу кезінде қате болды')
   } finally {
     loading.value = false
   }
@@ -298,7 +300,7 @@ async function saveRow(row) {
 
   try {
     if (!row.execution_start_date || !row.execution_end_date) {
-      errorMessage.value = 'Срок исполнения үшін басталу және аяқталу күні міндетті'
+      errorMessage.value = tr('Для срока исполнения обязательны даты начала и окончания', 'Срок исполнения үшін басталу және аяқталу күні міндетті')
       return
     }
 
@@ -319,12 +321,12 @@ async function saveRow(row) {
         ? saved.responsible_user_ids.map((value) => Number(value))
         : []
     })
-    successMessage.value = `Индикатор №${row.indicator_id} сақталды`
+    successMessage.value = tr(`Индикатор №${row.indicator_id} сохранен`, `Индикатор №${row.indicator_id} сақталды`)
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Сақтау кезінде қате болды'
+      ?? tr('Ошибка при сохранении', 'Сақтау кезінде қате болды')
   } finally {
     savingIndicatorId.value = null
   }
@@ -420,7 +422,7 @@ async function submitIndicatorReport() {
 
   const normalizedText = reportText.value.trim()
   if (reportFiles.value.length === 0) {
-    errorMessage.value = 'Кемінде бір файл жүктеу міндетті'
+    errorMessage.value = tr('Нужно загрузить минимум один файл', 'Кемінде бір файл жүктеу міндетті')
     return
   }
 
@@ -432,14 +434,14 @@ async function submitIndicatorReport() {
       report_text: normalizedText,
       files: reportFiles.value
     })
-    successMessage.value = `Индикатор №${row.indicator_id} бойынша отчет жіберілді`
+    successMessage.value = tr(`Отчет по индикатору №${row.indicator_id} отправлен`, `Индикатор №${row.indicator_id} бойынша отчет жіберілді`)
     closeReportModal()
     await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Отчет жіберу кезінде қате болды'
+      ?? tr('Ошибка отправки отчета', 'Отчет жіберу кезінде қате болды')
   } finally {
     reportSending.value = false
   }
@@ -458,22 +460,22 @@ onBeforeUnmount(() => {
 <template>
   <section class="plans-page">
     <PageHeader
-      title="Plans"
-      subtitle="Рабочая матрица текущего года: мероприятия, сроки исполнения и ответственные по каждому индикатору"
-      eyebrow="Execution Grid"
+      :title="tr('Планы', 'Жоспарлар')"
+      :subtitle="tr('Рабочая матрица текущего года: мероприятия, сроки исполнения и ответственные по каждому индикатору', 'Ағымдағы жыл матрицасы: әр индикатор үшін іс-шаралар, мерзімдер және жауаптылар')"
+      :eyebrow="tr('Сетка исполнения', 'Орындау кестесі')"
     />
 
     <div class="panel panel-strong toolbar-panel plans-toolbar">
       <div class="plans-year-card">
-        <span class="kicker">Current year</span>
+        <span class="kicker">{{ tr('Текущий год', 'Ағымдағы жыл') }}</span>
         <strong>{{ selectedYear }}</strong>
-        <p>Раздел синхронизирован только с индикаторами текущего года.</p>
+        <p>{{ tr('Раздел синхронизирован только с индикаторами текущего года.', 'Бұл бөлім тек ағымдағы жыл индикаторларымен синхрондалады.') }}</p>
       </div>
 
       <label v-if="isAdmin" class="plans-filter">
-        <span>Ответственные</span>
+        <span>{{ tr('Ответственные', 'Жауаптылар') }}</span>
         <select v-model="selectedResponsibleFilter">
-          <option value="">Барлығы</option>
+          <option value="">{{ tr('Все', 'Барлығы') }}</option>
           <option v-for="prorector in prorectors" :key="`filter-${prorector.id}`" :value="String(prorector.id)">
             {{ prorector.full_name }}
           </option>
@@ -481,7 +483,7 @@ onBeforeUnmount(() => {
       </label>
 
       <div class="plans-visible-card">
-        <span class="kicker">Visible</span>
+        <span class="kicker">{{ tr('Отображено', 'Көрсетілген') }}</span>
         <strong>{{ visibleRows.length }}</strong>
       </div>
     </div>
@@ -492,18 +494,18 @@ onBeforeUnmount(() => {
     <section class="panel panel-strong plans-table-card">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title">Операционный план</h3>
-          <p class="panel-subtitle">Редактирование доступно администратору, отправка отчета - назначенному проректору.</p>
+          <h3 class="panel-title">{{ tr('Операционный план', 'Операциялық жоспар') }}</h3>
+          <p class="panel-subtitle">{{ tr('Редактирование доступно администратору, отправка отчета - назначенному проректору.', 'Өңдеу әкімшіге қолжетімді, есеп жіберу бекітілген проректорға арналған.') }}</p>
         </div>
-        <span class="kicker">{{ visibleRows.length }} indicators</span>
+        <span class="kicker">{{ visibleRows.length }} {{ tr('индикаторов', 'индикатор') }}</span>
       </div>
 
-      <div v-if="loading" class="empty-state">Загрузка...</div>
+      <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
       <div v-else-if="!hasRows" class="empty-state">
-        {{ selectedYear }} жылына жоспарланған индикатор табылмады.
+        {{ tr(`По году ${selectedYear} нет запланированных индикаторов.`, `${selectedYear} жылына жоспарланған индикатор табылмады.`) }}
       </div>
       <div v-else-if="!hasVisibleRows" class="empty-state">
-        Таңдалған жауаптыға сәйкес индикатор табылмады.
+        {{ tr('По выбранному ответственному индикаторы не найдены.', 'Таңдалған жауаптыға сәйкес индикатор табылмады.') }}
       </div>
 
       <div v-else class="table-wrapper">
@@ -511,25 +513,25 @@ onBeforeUnmount(() => {
           <thead>
             <tr>
               <th class="col-number">№</th>
-              <th>Индикатор Программы развития</th>
-              <th>Мероприятия по достижению индикатора</th>
-              <th class="col-deadline">Срок исполнения</th>
-              <th class="col-responsible">Ответственные</th>
+              <th>{{ tr('Индикатор Программы развития', 'Бағдарлама дамуының индикаторы') }}</th>
+              <th>{{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}</th>
+              <th class="col-deadline">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+              <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
 
-              <td data-label="Индикатор программы развития">
+              <td :data-label="tr('Индикатор программы развития', 'Бағдарлама индикаторы')">
                 <div
                   class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
                   role="button"
                   tabindex="0"
-                  @click="openReadModal('Индикатор Программы развития', row.development_indicator)"
-                  @keyup.enter="openReadModal('Индикатор Программы развития', row.development_indicator)"
-                  @keyup.space.prevent="openReadModal('Индикатор Программы развития', row.development_indicator)"
+                  @click="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
+                  @keyup.enter="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
+                  @keyup.space.prevent="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
                 >
                   <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                 </div>
@@ -538,43 +540,43 @@ onBeforeUnmount(() => {
                 </span>
               </td>
 
-              <td data-label="Мероприятия по достижению индикатора">
+              <td :data-label="tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары')">
                 <div
                   class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.activities) === '—' }"
                   role="button"
                   tabindex="0"
-                  @click="openReadModal('Мероприятия по достижению индикатора', row.activities)"
-                  @keyup.enter="openReadModal('Мероприятия по достижению индикатора', row.activities)"
-                  @keyup.space.prevent="openReadModal('Мероприятия по достижению индикатора', row.activities)"
+                  @click="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
+                  @keyup.enter="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
+                  @keyup.space.prevent="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
                 >
                   <span class="table-text-preview-content">{{ textPreview(row.activities) }}</span>
                 </div>
               </td>
 
-              <td data-label="Срок исполнения">
+              <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
                 <div class="plans-schedule-card">
                   <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
                   <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
                     {{ scheduleStatusLabel(row.schedule_status) }}
                   </div>
                   <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
-                    Қалған уақыт: {{ formatRemainingTime(row) }}
+                    {{ tr('Осталось времени:', 'Қалған уақыт:') }} {{ formatRemainingTime(row) }}
                   </div>
                 </div>
               </td>
 
-              <td data-label="Ответственные">
+              <td :data-label="tr('Ответственные', 'Жауаптылар')">
                 <template v-if="isAdmin">
                   <p class="table-inline-value text-pretty">
-                    {{ row.responsible || 'Ответственные таңдалмаған' }}
+                    {{ row.responsible || tr('Ответственные не выбраны', 'Жауаптылар таңдалмаған') }}
                   </p>
                   <button
                     class="btn btn-primary plans-edit-row-btn"
                     type="button"
                     @click="openRowEditModal(row)"
                   >
-                    Өзгерту
+                    {{ tr('Изменить', 'Өзгерту') }}
                   </button>
                 </template>
                 <template v-else>
@@ -585,7 +587,7 @@ onBeforeUnmount(() => {
                     type="button"
                     @click="openReportModal(row)"
                   >
-                    Отправить отчет
+                    {{ tr('Отправить отчет', 'Есеп жіберу') }}
                   </button>
                 </template>
               </td>
@@ -604,7 +606,7 @@ onBeforeUnmount(() => {
 
         <div class="modal-actions">
           <button class="btn btn-primary" type="button" @click="closeReadModal">
-            Жабу
+            {{ tr('Закрыть', 'Жабу') }}
           </button>
         </div>
       </div>
@@ -612,40 +614,40 @@ onBeforeUnmount(() => {
 
     <div v-if="rowEditModalOpen" class="modal-backdrop" @click.self="closeRowEditModal">
       <div class="modal-card plans-modal plans-row-edit-modal">
-        <h3 class="modal-title">Индикаторды өзгерту</h3>
+        <h3 class="modal-title">{{ tr('Редактировать индикатор', 'Индикаторды өзгерту') }}</h3>
         <p class="modal-subtitle">
-          {{ activeRowEdit?.development_indicator || 'Индикатор' }}
+          {{ activeRowEdit?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
 
         <div class="row-edit-grid">
           <label class="modal-label">
-            Индикатор Программы развития
+            {{ tr('Индикатор Программы развития', 'Бағдарлама индикаторы') }}
             <textarea
               v-model="rowEditForm.development_indicator"
               class="plans-edit-textarea"
               rows="5"
-              placeholder="Индикатор мәтінін жазыңыз..."
+              :placeholder="tr('Введите текст индикатора...', 'Индикатор мәтінін жазыңыз...')"
             />
           </label>
 
           <label class="modal-label">
-            Мероприятия по достижению индикатора
+            {{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}
             <textarea
               v-model="rowEditForm.activities"
               class="plans-edit-textarea"
               rows="8"
-              placeholder="Мероприятия мәтінін жазыңыз..."
+              :placeholder="tr('Введите мероприятия...', 'Мероприятия мәтінін жазыңыз...')"
             />
           </label>
 
           <div class="row-edit-dates">
             <div class="date-range-grid">
               <label class="date-field">
-                <span>Басталуы</span>
+                <span>{{ tr('Начало', 'Басталуы') }}</span>
                 <input v-model="rowEditForm.execution_start_date" class="plans-input" type="date" />
               </label>
               <label class="date-field">
-                <span>Аяқталуы</span>
+                <span>{{ tr('Окончание', 'Аяқталуы') }}</span>
                 <input v-model="rowEditForm.execution_end_date" class="plans-input" type="date" />
               </label>
             </div>
@@ -656,8 +658,8 @@ onBeforeUnmount(() => {
 
           <label class="modal-label">
             <div class="row-edit-prorectors-head">
-              <span>Ответственные</span>
-              <span class="row-edit-prorectors-meta">Таңдалды: {{ rowEditForm.responsible_user_ids.length }}</span>
+              <span>{{ tr('Ответственные', 'Жауаптылар') }}</span>
+              <span class="row-edit-prorectors-meta">{{ tr('Выбрано:', 'Таңдалды:') }} {{ rowEditForm.responsible_user_ids.length }}</span>
             </div>
             <div class="row-edit-prorectors">
               <div class="prorector-list">
@@ -679,7 +681,7 @@ onBeforeUnmount(() => {
                 </label>
               </div>
               <p v-if="prorectors.length === 0" class="empty-state row-edit-prorectors-empty">
-                Проректорлар тізімі жоқ.
+                {{ tr('Список проректоров пуст.', 'Проректорлар тізімі жоқ.') }}
               </p>
             </div>
           </label>
@@ -687,7 +689,7 @@ onBeforeUnmount(() => {
 
         <div class="modal-actions">
           <button class="btn btn-ghost" type="button" @click="closeRowEditModal">
-            Бас тарту
+            {{ tr('Отмена', 'Бас тарту') }}
           </button>
           <button
             class="btn btn-primary"
@@ -695,7 +697,7 @@ onBeforeUnmount(() => {
             :disabled="savingIndicatorId === rowEditIndicatorId"
             @click="saveRowFromModal"
           >
-            {{ savingIndicatorId === rowEditIndicatorId ? 'Сақталуда...' : 'Сақтау' }}
+            {{ savingIndicatorId === rowEditIndicatorId ? tr('Сохранение...', 'Сақталуда...') : tr('Сохранить', 'Сақтау') }}
           </button>
         </div>
       </div>
@@ -703,23 +705,23 @@ onBeforeUnmount(() => {
 
     <div v-if="reportModalOpen" class="modal-backdrop" @click.self="closeReportModal">
       <div class="modal-card plans-modal">
-        <h3 class="modal-title">Отправить отчет</h3>
+        <h3 class="modal-title">{{ tr('Отправить отчет', 'Есеп жіберу') }}</h3>
         <p class="modal-subtitle">
-          {{ activeReportRow?.development_indicator || 'Индикатор' }}
+          {{ activeReportRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
 
         <label class="modal-label">
-          Текст отчета
+          {{ tr('Текст отчета', 'Есеп мәтіні') }}
           <textarea
             v-model="reportText"
             class="report-textarea"
             rows="6"
-            placeholder="Индикатор бойынша орындалу нәтижесін жазыңыз..."
+            :placeholder="tr('Опишите результат выполнения по индикатору...', 'Индикатор бойынша орындалу нәтижесін жазыңыз...')"
           />
         </label>
 
         <label class="modal-label">
-          Құжаттар (кемінде 1 файл)
+          {{ tr('Документы (минимум 1 файл)', 'Құжаттар (кемінде 1 файл)') }}
           <input
             class="report-file-input"
             type="file"
@@ -729,12 +731,12 @@ onBeforeUnmount(() => {
           />
         </label>
         <p v-if="reportFiles.length > 0" class="file-list">
-          Таңдалған файлдар: {{ reportFiles.map((file) => file.name).join(', ') }}
+          {{ tr('Выбранные файлы:', 'Таңдалған файлдар:') }} {{ reportFiles.map((file) => file.name).join(', ') }}
         </p>
 
         <div class="modal-actions">
           <button class="btn btn-ghost" type="button" @click="closeReportModal">
-            Бас тарту
+            {{ tr('Отмена', 'Бас тарту') }}
           </button>
           <button
             class="btn btn-primary"
@@ -742,7 +744,7 @@ onBeforeUnmount(() => {
             :disabled="reportSending"
             @click="submitIndicatorReport"
           >
-            {{ reportSending ? 'Жіберілуде...' : 'Отправить' }}
+            {{ reportSending ? tr('Отправка...', 'Жіберілуде...') : tr('Отправить', 'Жіберу') }}
           </button>
         </div>
       </div>

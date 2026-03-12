@@ -1,15 +1,21 @@
+<script setup>
+import { useLocale } from '../composables/useLocale'
+
+const { tr } = useLocale()
+</script>
+
 <template>
   <section class="not-found page">
     <div class="panel panel-warning not-found-card">
       <span class="kicker">404</span>
-      <h2>Страница не найдена</h2>
+      <h2>{{ tr('Страница не найдена', 'Бет табылмады') }}</h2>
       <p>
-        Похоже, адрес больше не существует или вы перешли по устаревшей ссылке. Вернитесь в рабочий контур и продолжите работу оттуда.
+        {{ tr('Похоже, адрес больше не существует или вы перешли по устаревшей ссылке. Вернитесь в рабочий контур и продолжите работу оттуда.', 'Бұл адрес енді жоқ немесе ескі сілтеме арқылы кірдіңіз. Жұмыс бөліміне оралып, сол жерден жалғастырыңыз.') }}
       </p>
 
       <div class="not-found-actions">
         <RouterLink :to="{ name: 'dashboard' }" class="btn btn-primary">
-          Вернуться на Dashboard
+          {{ tr('Вернуться в панель управления', 'Басқару панеліне оралу') }}
         </RouterLink>
       </div>
     </div>

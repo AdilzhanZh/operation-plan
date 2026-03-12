@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { useLocale } from '../composables/useLocale'
 import { fetchPlanIndicators, fetchPlanYears } from '../services/plan.service'
 import { useAuthStore } from '../store/auth'
 
@@ -10,6 +11,7 @@ const loading = ref(false)
 const errorMessage = ref('')
 const allRows = ref([])
 const authStore = useAuthStore()
+const { tr } = useLocale()
 const isProrector = computed(() => authStore.user?.role === 'prorector')
 const readModalOpen = ref(false)
 const readModalTitle = ref('')
@@ -26,64 +28,65 @@ const stats = ref({
 
 const hasYears = computed(() => years.value.length > 0)
 
-const cardMeta = {
-  total: 'Полный пул индикаторов выбранного года',
-  completed: 'Позиции с утвержденным завершением',
-  not_filled: 'Индикаторы без заполненного графика или отчета',
-  in_progress: 'Активные задачи в пределах срока',
-  overdue: 'Точки, требующие немедленного контроля'
-}
-
 const cardConfig = computed(() => {
   if (isProrector.value) {
     return [
-      { key: 'total', label: 'Total Tasks' },
-      { key: 'completed', label: 'Completed' },
-      { key: 'overdue', label: 'Overdue' }
+      { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
+      { key: 'completed', label: tr('Завершено', 'Аяқталған') },
+      { key: 'overdue', label: tr('Просрочено', 'Мерзімі өткен') }
     ]
   }
   return [
-    { key: 'total', label: 'Total Tasks' },
-    { key: 'completed', label: 'Completed' },
-    { key: 'not_filled', label: 'Not Filled' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'overdue', label: 'Overdue' }
+    { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
+    { key: 'completed', label: tr('Завершено', 'Аяқталған') },
+    { key: 'not_filled', label: tr('Не заполнено', 'Толтырылмаған') },
+    { key: 'in_progress', label: tr('В работе', 'Жұмыста') },
+    { key: 'overdue', label: tr('Просрочено', 'Мерзімі өткен') }
   ]
 })
+
+function cardMetaLabel(cardKey) {
+  if (cardKey === 'total') return tr('Полный пул индикаторов выбранного года', 'Таңдалған жылдың толық индикаторлар пулы')
+  if (cardKey === 'completed') return tr('Позиции с утвержденным завершением', 'Расталған аяқталу статусы бар позициялар')
+  if (cardKey === 'not_filled') return tr('Индикаторы без заполненного графика или отчета', 'Кестесі не есебі толтырылмаған индикаторлар')
+  if (cardKey === 'in_progress') return tr('Активные задачи в пределах срока', 'Мерзім ішіндегі белсенді тапсырмалар')
+  if (cardKey === 'overdue') return tr('Точки, требующие немедленного контроля', 'Жедел бақылауды қажет ететін позициялар')
+  return ''
+}
 
 const cards = computed(() => cardConfig.value.map((card) => ({
   ...card,
   value: stats.value[card.key] ?? 0,
-  meta: cardMeta[card.key] ?? ''
+  meta: cardMetaLabel(card.key)
 })))
 
 const listTitle = computed(() => {
   switch (activeCard.value) {
     case 'completed':
-      return 'Completed индикаторлар тізімі'
+      return tr('Список завершенных индикаторов', 'Аяқталған индикаторлар тізімі')
     case 'in_progress':
-      return 'In Progress индикаторлар тізімі'
+      return tr('Список индикаторов в работе', 'Жұмыстағы индикаторлар тізімі')
     case 'not_filled':
-      return 'Not Filled индикаторлар тізімі'
+      return tr('Список незаполненных индикаторов', 'Толтырылмаған индикаторлар тізімі')
     case 'overdue':
-      return 'Overdue индикаторлар тізімі'
+      return tr('Список просроченных индикаторов', 'Мерзімі өткен индикаторлар тізімі')
     default:
-      return 'Барлық индикаторлар тізімі'
+      return tr('Список всех индикаторов', 'Барлық индикаторлар тізімі')
   }
 })
 
 function statusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'completed') {
-    return 'Completed'
+    return tr('Завершено', 'Аяқталған')
   }
   if (normalized === 'overdue') {
-    return 'Overdue'
+    return tr('Просрочено', 'Мерзімі өткен')
   }
   if (normalized === 'not_filled') {
-    return 'Not Filled'
+    return tr('Не заполнено', 'Толтырылмаған')
   }
-  return 'In Progress'
+  return tr('В работе', 'Жұмыста')
 }
 
 function textPreview(value) {
@@ -134,7 +137,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return raw
   }
-  return date.toLocaleString('ru-RU')
+  return date.toLocaleString(tr('ru-RU', 'kk-KZ'))
 }
 
 function statusFilterByCard(cardKey) {
@@ -270,7 +273,7 @@ async function initialize() {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Dashboard жүктеу кезінде қате болды'
+      ?? tr('Ошибка загрузки панели управления', 'Басқару панелін жүктеу кезінде қате болды')
   } finally {
     loading.value = false
   }
@@ -287,7 +290,7 @@ async function handleYearChange(event) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Жыл бойынша деректі жүктеу мүмкін болмады'
+      ?? tr('Не удалось загрузить данные по году', 'Жыл бойынша деректі жүктеу мүмкін болмады')
   } finally {
     loading.value = false
   }
@@ -309,16 +312,16 @@ onMounted(() => {
 <template>
   <section class="dashboard-page">
     <PageHeader
-      title="Dashboard"
-      subtitle="Ключевой обзор по индикаторам, срокам исполнения и последним отправленным отчетам за активный год"
-      eyebrow="Overview"
+      :title="tr('Панель управления', 'Басқару панелі')"
+      :subtitle="tr('Ключевой обзор по индикаторам, срокам исполнения и последним отправленным отчетам за активный год', 'Белсенді жыл бойынша индикаторлар, мерзімдер және соңғы жіберілген есептерге шолу')"
+      :eyebrow="tr('Обзор', 'Шолу')"
     />
 
     <div class="panel panel-strong toolbar-panel dashboard-toolbar">
       <label class="dashboard-filter">
-        <span>Год</span>
+        <span>{{ tr('Год', 'Жыл') }}</span>
         <select :value="selectedYear" :disabled="loading || !hasYears" @change="handleYearChange">
-          <option v-if="!hasYears" value="">Нет годов</option>
+          <option v-if="!hasYears" value="">{{ tr('Нет годов', 'Жылдар жоқ') }}</option>
           <option v-for="year in years" :key="year" :value="String(year)">
             {{ year }}
           </option>
@@ -326,8 +329,8 @@ onMounted(() => {
       </label>
 
       <div class="dashboard-toolbar-note">
-        <span class="kicker">Focus</span>
-        <p>Выберите карточку ниже, чтобы быстро сфокусировать список по нужному статусу.</p>
+        <span class="kicker">{{ tr('Фокус', 'Фокус') }}</span>
+        <p>{{ tr('Выберите карточку ниже, чтобы быстро сфокусировать список по нужному статусу.', 'Төмендегі карточканы таңдап, тізімді қажетті мәртебе бойынша сүзгіден өткізіңіз.') }}</p>
       </div>
     </div>
 
@@ -352,51 +355,51 @@ onMounted(() => {
       <div class="panel-header">
         <div>
           <h3 class="panel-title">{{ listTitle }}</h3>
-          <p class="panel-subtitle">Список автоматически перестраивается по выбранной карточке статуса.</p>
+          <p class="panel-subtitle">{{ tr('Список автоматически перестраивается по выбранной карточке статуса.', 'Тізім таңдалған мәртебе карточкасына сай автоматты қайта құрылады.') }}</p>
         </div>
-        <span class="kicker">{{ rows.length }} rows</span>
+        <span class="kicker">{{ rows.length }} {{ tr('строк', 'жол') }}</span>
       </div>
 
-      <div v-if="loading" class="empty-state">Загрузка...</div>
-      <div v-else-if="!hasYears" class="empty-state">Әзірге жылдық дерек жоқ</div>
-      <div v-else-if="rows.length === 0" class="empty-state">Тізім бос</div>
+      <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
+      <div v-else-if="!hasYears" class="empty-state">{{ tr('Пока нет данных по годам', 'Әзірге жылдық дерек жоқ') }}</div>
+      <div v-else-if="rows.length === 0" class="empty-state">{{ tr('Список пуст', 'Тізім бос') }}</div>
       <div v-else class="table-wrap">
         <table class="table dashboard-table">
           <thead>
             <tr>
               <th>№</th>
-              <th>Целевой индикатор</th>
-              <th>Срок исполнения</th>
-              <th>Ответственные</th>
-              <th>Статус</th>
-              <th>Отправлено</th>
+              <th>{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
+              <th>{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+              <th>{{ tr('Ответственные', 'Жауаптылар') }}</th>
+              <th>{{ tr('Статус', 'Мәртебе') }}</th>
+              <th>{{ tr('Отправлено', 'Жіберілген уақыты') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.indicator_id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
-              <td data-label="Целевой индикатор">
+              <td :data-label="tr('Целевой индикатор', 'Мақсатты индикатор')">
                 <div
                   class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
                   role="button"
                   tabindex="0"
-                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @click="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                  @keyup.enter="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                  @keyup.space.prevent="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
                 >
                   <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                 </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
-              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
-              <td data-label="Статус">
+              <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" :data-label="tr('Ответственные', 'Жауаптылар')">{{ row.responsible || '—' }}</td>
+              <td :data-label="tr('Статус', 'Мәртебе')">
                 <span class="status-pill" :class="`status-${row.dashboard_status}`">
                   {{ statusLabel(row.dashboard_status) }}
                 </span>
               </td>
-              <td data-label="Отправлено">{{ formatDate(row.last_submitted_at) }}</td>
+              <td :data-label="tr('Отправлено', 'Жіберілген уақыты')">{{ formatDate(row.last_submitted_at) }}</td>
             </tr>
           </tbody>
         </table>
@@ -410,7 +413,7 @@ onMounted(() => {
           {{ readModalText }}
         </div>
         <div class="modal-actions">
-          <button class="btn btn-primary" type="button" @click="closeReadModal">Жабу</button>
+          <button class="btn btn-primary" type="button" @click="closeReadModal">{{ tr('Закрыть', 'Жабу') }}</button>
         </div>
       </div>
     </div>

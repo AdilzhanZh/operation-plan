@@ -1,12 +1,15 @@
 <script setup>
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import LanguageSwitch from '../components/LanguageSwitch.vue'
+import { useLocale } from '../composables/useLocale'
 import { loginRequest } from '../services/auth.service'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
 const form = reactive({
   username: '',
@@ -15,7 +18,9 @@ const form = reactive({
 
 const loading = ref(false)
 const errorMessage = ref('')
-const infoMessage = ref(route.query.reauth === '1' ? 'Сессия завершена. Войдите снова с новым паролем.' : '')
+const infoMessage = ref(route.query.reauth === '1'
+  ? tr('Сессия завершена. Войдите снова с новым паролем.', 'Сессия аяқталды. Жаңа құпиясөзбен қайта кіріңіз.')
+  : '')
 
 async function submit() {
   loading.value = true
@@ -30,7 +35,7 @@ async function submit() {
     authStore.login(response)
     await router.push({ name: 'dashboard' })
   } catch (error) {
-    errorMessage.value = error?.response?.data?.error ?? 'Кіру кезінде қате болды'
+    errorMessage.value = error?.response?.data?.error ?? tr('Ошибка при входе', 'Кіру кезінде қате болды')
   } finally {
     loading.value = false
   }
@@ -41,41 +46,44 @@ async function submit() {
   <section class="auth-card">
     <div class="auth-showcase">
       <span class="auth-kicker">Oper Plan</span>
-      <h1 class="auth-title">Планирование, контроль и отчеты в одном контуре.</h1>
+      <h1 class="auth-title">{{ tr('Планирование, контроль и отчеты в одном контуре.', 'Жоспарлау, бақылау және есептер бір ортада.') }}</h1>
       <p class="auth-lead">
-        Вход открывает доступ к срокам, ответственным и статусам выполнения по всей программе развития.
+        {{ tr('Вход открывает доступ к срокам, ответственным и статусам выполнения по всей программе развития.', 'Кіру бағдарламаның мерзімдері, жауаптылары және орындалу мәртебелеріне қолжеткізеді.') }}
       </p>
 
       <div class="auth-points">
         <div class="auth-point">
-          <strong>Единый рабочий контур</strong>
-          <span>Все ключевые показатели, планы и отчеты собраны в одном интерфейсе.</span>
+          <strong>{{ tr('Единый рабочий контур', 'Бірыңғай жұмыс контуры') }}</strong>
+          <span>{{ tr('Все ключевые показатели, планы и отчеты собраны в одном интерфейсе.', 'Барлық негізгі көрсеткіштер, жоспарлар мен есептер бір интерфейсте жинақталған.') }}</span>
         </div>
         <div class="auth-point">
-          <strong>Прозрачные сроки</strong>
-          <span>Ответственные, дедлайны и статусы видны без ручного согласования в таблицах.</span>
+          <strong>{{ tr('Прозрачные сроки', 'Айқын мерзімдер') }}</strong>
+          <span>{{ tr('Ответственные, дедлайны и статусы видны без ручного согласования в таблицах.', 'Жауаптылар, дедлайндар мен мәртебелер кестеде бірден көрінеді.') }}</span>
         </div>
         <div class="auth-point">
-          <strong>Быстрый контроль</strong>
-          <span>Администраторы и проректоры работают в одном процессе без переключения между системами.</span>
+          <strong>{{ tr('Быстрый контроль', 'Жедел бақылау') }}</strong>
+          <span>{{ tr('Администраторы и проректоры работают в одном процессе без переключения между системами.', 'Әкімшілер мен проректорлар жүйелер арасында ауыспай, бір процесте жұмыс істейді.') }}</span>
         </div>
       </div>
     </div>
 
     <div class="auth-form-panel">
-      <span class="kicker">Sign In</span>
-      <h1>Вход в систему</h1>
-      <p>Используйте логин и пароль, выданные администратором платформы.</p>
+      <div class="auth-lang-row">
+        <LanguageSwitch />
+      </div>
+      <span class="kicker">{{ tr('Вход', 'Кіру') }}</span>
+      <h1>{{ tr('Вход в систему', 'Жүйеге кіру') }}</h1>
+      <p>{{ tr('Используйте логин и пароль, выданные администратором платформы.', 'Платформа әкімшісі берген логин мен құпиясөзді пайдаланыңыз.') }}</p>
 
       <form class="auth-actions" @submit.prevent="submit">
         <div class="auth-form-grid">
           <label>
-            Логин
+            {{ tr('Логин', 'Логин') }}
             <input v-model="form.username" type="text" autocomplete="username" required />
           </label>
 
           <label>
-            Пароль
+            {{ tr('Пароль', 'Құпиясөз') }}
             <input v-model="form.password" type="password" autocomplete="current-password" required />
           </label>
         </div>
@@ -84,19 +92,25 @@ async function submit() {
         <p v-if="errorMessage" class="message message-error">{{ errorMessage }}</p>
 
         <button type="submit" class="btn btn-primary auth-submit" :disabled="loading">
-          {{ loading ? 'Кіру...' : 'Кіру' }}
+          {{ loading ? tr('Вход...', 'Кіру...') : tr('Войти', 'Кіру') }}
         </button>
       </form>
 
       <p class="auth-link-row">
-        Аккаунтыңыз жоқ па?
-        <RouterLink :to="{ name: 'register' }">Тіркелу</RouterLink>
+        {{ tr('Нет аккаунта?', 'Аккаунтыңыз жоқ па?') }}
+        <RouterLink :to="{ name: 'register' }">{{ tr('Регистрация', 'Тіркелу') }}</RouterLink>
       </p>
     </div>
   </section>
 </template>
 
 <style scoped>
+.auth-lang-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
 .auth-submit {
   width: 100%;
   justify-content: center;

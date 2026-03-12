@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { useLocale } from '../composables/useLocale'
 import {
   downloadPlanReportFile,
   fetchPlanReports,
@@ -11,6 +12,7 @@ import {
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
+const { tr } = useLocale()
 
 const years = ref([])
 const selectedYear = ref('')
@@ -46,15 +48,15 @@ const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReviewRow = computed(() => rows.value.find((item) => item.id === reviewRowId.value) ?? null)
 const pageSubtitle = computed(() => {
   if (isAdmin.value) {
-    return 'Проректорлар жіберген индикаторлар, файлдар және қабылдау/қабылдамау'
+    return tr('Индикаторы, отправленные проректорами, файлы и решения по принятию/отклонению', 'Проректорлар жіберген индикаторлар, файлдар және қабылдау/қабылдамау')
   }
   if (isProrector.value) {
     if (isRejectedCategory.value) {
-      return 'Rejected отчеттар. Түзетіп, қайта жіберуге болады'
+      return tr('Отклоненные отчеты. Можно исправить и отправить повторно', 'Қабылданбаған есептер. Түзетіп, қайта жіберуге болады')
     }
-    return 'На проверке: админнің жауабын күтіп тұрған отчеттар'
+    return tr('На проверке: отчеты, ожидающие решения администратора', 'На проверке: админнің жауабын күтіп тұрған отчеттар')
   }
-  return 'Отчеттар тізімі'
+  return tr('Список отчетов', 'Отчеттар тізімі')
 })
 
 function clearMessages() {
@@ -139,21 +141,21 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return '—'
   }
-  return date.toLocaleString('ru-RU')
+  return date.toLocaleString(tr('ru-RU', 'kk-KZ'))
 }
 
 function statusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'completed' || normalized === 'approved') {
-    return 'Completed'
+    return tr('Завершено', 'Аяқталған')
   }
   if (normalized === 'rejected') {
-    return 'Rejected'
+    return tr('Отклонено', 'Қабылданбады')
   }
   if (normalized === 'overdue') {
-    return 'Overdue'
+    return tr('Просрочено', 'Мерзімі өткен')
   }
-  return 'Pending'
+  return tr('На проверке', 'Тексерісте')
 }
 
 function canReviewRow(row) {
@@ -201,7 +203,7 @@ async function initialize() {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Мәліметтерді жүктеу мүмкін болмады'
+      ?? tr('Не удалось загрузить данные', 'Мәліметтерді жүктеу мүмкін болмады')
   } finally {
     loading.value = false
   }
@@ -223,7 +225,7 @@ async function selectYear(yearValue) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Жыл бойынша мәліметтерді жүктеу мүмкін болмады'
+      ?? tr('Не удалось загрузить данные по году', 'Жыл бойынша мәліметтерді жүктеу мүмкін болмады')
   } finally {
     loading.value = false
   }
@@ -244,7 +246,7 @@ async function handleProrectorCategoryChange(category) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Категория бойынша мәліметтерді жүктеу мүмкін болмады'
+      ?? tr('Не удалось загрузить данные по категории', 'Категория бойынша мәліметтерді жүктеу мүмкін болмады')
   } finally {
     loading.value = false
   }
@@ -304,7 +306,7 @@ async function extractErrorMessage(error, fallback) {
     return error.message
   }
 
-  return fallback
+  return tr(fallback, fallback)
 }
 
 async function handleDownload(file) {
@@ -324,7 +326,7 @@ async function handleDownload(file) {
     document.body.removeChild(link)
     window.URL.revokeObjectURL(blobUrl)
   } catch (error) {
-    errorMessage.value = await extractErrorMessage(error, 'Файлды жүктеу мүмкін болмады')
+    errorMessage.value = await extractErrorMessage(error, tr('Не удалось загрузить файл', 'Файлды жүктеу мүмкін болмады'))
   }
 }
 
@@ -358,8 +360,8 @@ async function submitReviewDecision() {
   const normalizedText = reviewText.value.trim()
   if (!normalizedText) {
     errorMessage.value = reviewMode.value === 'approve'
-      ? 'Формуланы толтырыңыз'
-      : 'Қабылдамау себебін толтырыңыз'
+      ? tr('Заполните формулу', 'Формуланы толтырыңыз')
+      : tr('Заполните причину отклонения', 'Қабылдамау себебін толтырыңыз')
     return
   }
 
@@ -372,13 +374,13 @@ async function submitReviewDecision() {
         action: 'approve',
         approval_formula: normalizedText
       })
-      successMessage.value = 'Отчет қабылданды'
+      successMessage.value = tr('Отчет принят', 'Отчет қабылданды')
     } else {
       await reviewPlanReport(reviewRowId.value, {
         action: 'reject',
         review_note: normalizedText
       })
-      successMessage.value = 'Отчет қабылданбады'
+      successMessage.value = tr('Отчет отклонен', 'Отчет қабылданбады')
     }
 
     closeReviewModal()
@@ -387,7 +389,7 @@ async function submitReviewDecision() {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Статусты жаңарту мүмкін болмады'
+      ?? tr('Не удалось обновить статус', 'Статусты жаңарту мүмкін болмады')
   } finally {
     reviewSaving.value = false
   }
@@ -423,7 +425,7 @@ async function submitResubmittedReport() {
   }
 
   if (resubmitFiles.value.length === 0) {
-    errorMessage.value = 'Кемінде бір құжат жүктеу міндетті'
+    errorMessage.value = tr('Нужно загрузить минимум один документ', 'Кемінде бір құжат жүктеу міндетті')
     return
   }
 
@@ -435,14 +437,14 @@ async function submitResubmittedReport() {
       report_text: resubmitText.value.trim(),
       files: resubmitFiles.value
     })
-    successMessage.value = 'Отчет қайта жіберілді'
+    successMessage.value = tr('Отчет отправлен повторно', 'Отчет қайта жіберілді')
     closeResubmitModal()
     await loadRows()
   } catch (error) {
     errorMessage.value = error?.response?.data?.error
       ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
       ?? error?.message
-      ?? 'Отчетты қайта жіберу мүмкін болмады'
+      ?? tr('Не удалось отправить отчет повторно', 'Отчетты қайта жіберу мүмкін болмады')
   } finally {
     resubmitSending.value = false
   }
@@ -461,16 +463,16 @@ onBeforeUnmount(() => {
 <template>
   <section class="execution-page">
     <PageHeader
-      title="ВЫПОЛНЕНИЕ ПРОГРАММЫ РАЗВИТИЯ"
+      :title="tr('ВЫПОЛНЕНИЕ ПРОГРАММЫ РАЗВИТИЯ', 'ДАМУ БАҒДАРЛАМАСЫНЫҢ ОРЫНДАЛУЫ')"
       :subtitle="pageSubtitle"
-      eyebrow="Reports"
+      :eyebrow="tr('Отчеты', 'Есептер')"
     />
 
     <div class="panel panel-strong toolbar-panel execution-toolbar">
       <div class="execution-toolbar-top">
         <div class="execution-year-strip">
           <div class="execution-year-strip-head">
-            <span class="execution-year-label">Год</span>
+            <span class="execution-year-label">{{ tr('Год', 'Жыл') }}</span>
             <div class="execution-year-nav">
               <button
                 class="btn btn-ghost year-nav-btn"
@@ -519,7 +521,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="execution-summary-card execution-summary-compact">
-          <span class="kicker">Rows</span>
+          <span class="kicker">{{ tr('Строки', 'Жолдар') }}</span>
           <strong>{{ rows.length }}</strong>
         </div>
       </div>
@@ -531,7 +533,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="handleProrectorCategoryChange('pending')"
         >
-          На проверке
+          {{ tr('На проверке', 'Тексерісте') }}
         </button>
         <button
           class="btn btn-ghost execution-category-btn"
@@ -539,7 +541,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="handleProrectorCategoryChange('rejected')"
         >
-          Rejected
+          {{ tr('Отклонено', 'Қабылданбаған') }}
         </button>
       </div>
     </div>
@@ -550,27 +552,27 @@ onBeforeUnmount(() => {
     <section class="panel panel-strong execution-table-card">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title">Отчеты и решения</h3>
-          <p class="panel-subtitle">Файлы, текст отчета, формулы проверки и причина отклонения видны в одном потоке.</p>
+          <h3 class="panel-title">{{ tr('Отчеты и решения', 'Есептер және шешімдер') }}</h3>
+          <p class="panel-subtitle">{{ tr('Файлы, текст отчета, формулы проверки и причина отклонения видны в одном потоке.', 'Файлдар, есеп мәтіні, тексеру формуласы және қабылдамау себебі бір ағынмен көрсетіледі.') }}</p>
         </div>
-        <span class="kicker">{{ selectedYear || 'No year' }}</span>
+        <span class="kicker">{{ selectedYear || tr('Нет года', 'Жыл жоқ') }}</span>
       </div>
 
-      <div v-if="loading" class="empty-state">Загрузка...</div>
+      <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
       <div v-else-if="!hasYears" class="empty-state">
-        Әзірге жылдар жоқ.
+        {{ tr('Пока нет годов.', 'Әзірге жылдар жоқ.') }}
       </div>
       <div v-else-if="rows.length === 0" class="empty-state">
         <template v-if="isProrector">
           <template v-if="isRejectedCategory">
-            {{ selectedYear }} жылына Rejected отчеттар жоқ.
+            {{ tr(`За ${selectedYear} год нет отклоненных отчетов.`, `${selectedYear} жылына қабылданбаған есептер жоқ.`) }}
           </template>
           <template v-else>
-            {{ selectedYear }} жылына На проверке категориясында отчеттар жоқ.
+            {{ tr(`За ${selectedYear} год нет отчетов в категории На проверке.`, `${selectedYear} жылына На проверке категориясында отчеттар жоқ.`) }}
           </template>
         </template>
         <template v-else>
-          {{ selectedYear }} жылына жіберілген отчеттар жоқ.
+          {{ tr(`За ${selectedYear} год нет отправленных отчетов.`, `${selectedYear} жылына жіберілген отчеттар жоқ.`) }}
         </template>
       </div>
 
@@ -582,43 +584,43 @@ onBeforeUnmount(() => {
           <thead>
             <tr>
               <th>№</th>
-              <th>Целевой индикатор</th>
-              <th>Срок исполнения</th>
-              <th>Ответственные</th>
-              <th>Выполнение индикатора</th>
-              <th>Статус</th>
-              <th>Решение</th>
+              <th>{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
+              <th>{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+              <th>{{ tr('Ответственные', 'Жауаптылар') }}</th>
+              <th>{{ tr('Выполнение индикатора', 'Индикатор орындалуы') }}</th>
+              <th>{{ tr('Статус', 'Мәртебе') }}</th>
+              <th>{{ tr('Решение', 'Шешім') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
-              <td data-label="Целевой индикатор">
+              <td :data-label="tr('Целевой индикатор', 'Мақсатты индикатор')">
                 <div
                   class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
                   role="button"
                   tabindex="0"
-                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                    @click="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                    @keyup.enter="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                    @keyup.space.prevent="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
                 >
                   <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                 </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
-              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
-              <td data-label="Выполнение индикатора">
+              <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" :data-label="tr('Ответственные', 'Жауаптылар')">{{ row.responsible || '—' }}</td>
+              <td :data-label="tr('Выполнение индикатора', 'Индикатор орындалуы')">
                 <div class="report-card">
                   <div
                     class="table-text-preview text-pretty"
                     :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
                     role="button"
                     tabindex="0"
-                    @click="openReadModal('Выполнение индикатора', row.report_text)"
-                    @keyup.enter="openReadModal('Выполнение индикатора', row.report_text)"
-                    @keyup.space.prevent="openReadModal('Выполнение индикатора', row.report_text)"
+                    @click="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
+                    @keyup.enter="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
+                    @keyup.space.prevent="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
                   >
                     <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
                   </div>
@@ -632,37 +634,37 @@ onBeforeUnmount(() => {
                     >
                       {{ file.file_name }}
                     </button>
-                    <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
+                    <span v-if="!row.files || row.files.length === 0" class="muted">{{ tr('Нет файла', 'Файл жоқ') }}</span>
                   </div>
                   <p class="meta">
-                    Отправил: {{ row.submitted_by_name || row.submitted_by }} • {{ formatDate(row.submitted_at) }}
+                    {{ tr('Отправил:', 'Жіберген:') }} {{ row.submitted_by_name || row.submitted_by }} • {{ formatDate(row.submitted_at) }}
                   </p>
                   <p v-if="row.reviewed_by_name" class="meta">
-                    Проверил: {{ row.reviewed_by_name }} • {{ formatDate(row.reviewed_at) }}
+                    {{ tr('Проверил:', 'Тексерген:') }} {{ row.reviewed_by_name }} • {{ formatDate(row.reviewed_at) }}
                   </p>
                   <p v-if="row.approval_formula" class="formula-text text-pretty">
-                    Формула: {{ row.approval_formula }}
+                    {{ tr('Формула:', 'Формула:') }} {{ row.approval_formula }}
                   </p>
                   <p v-if="row.review_note" class="reject-note text-pretty">
-                    Причина: {{ row.review_note }}
+                    {{ tr('Причина:', 'Себеп:') }} {{ row.review_note }}
                   </p>
                 </div>
               </td>
-              <td data-label="Статус">
+              <td :data-label="tr('Статус', 'Мәртебе')">
                 <span class="status-pill" :class="`status-${row.status}`">
                   {{ statusLabel(row.status) }}
                 </span>
               </td>
-              <td class="actions-cell" data-label="Решение">
+              <td class="actions-cell" :data-label="tr('Решение', 'Шешім')">
                 <template v-if="canReviewRow(row)">
                   <button class="btn btn-primary action-btn" type="button" @click="openApproveModal(row)">
-                    Қабылдау
+                    {{ tr('Принять', 'Қабылдау') }}
                   </button>
                   <button class="btn btn-danger action-btn" type="button" @click="openRejectModal(row)">
-                    Қабылдамау
+                    {{ tr('Отклонить', 'Қабылдамау') }}
                   </button>
                 </template>
-                <span v-else class="muted">Қаралған</span>
+                <span v-else class="muted">{{ tr('Рассмотрено', 'Қаралған') }}</span>
               </td>
             </tr>
           </tbody>
@@ -677,58 +679,58 @@ onBeforeUnmount(() => {
           <thead>
             <tr>
               <th>№</th>
-              <th>Целевой индикатор</th>
-              <th>Срок исполнения</th>
-              <th>Ответственные</th>
-              <th v-if="isRejectedCategory">Причина Rejected</th>
-              <th v-else>Статус</th>
-              <th>Алдыңғы отчет</th>
-              <th>Құжаттар</th>
-              <th>Әрекет</th>
+              <th>{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
+              <th>{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+              <th>{{ tr('Ответственные', 'Жауаптылар') }}</th>
+              <th v-if="isRejectedCategory">{{ tr('Причина отклонения', 'Қабылданбау себебі') }}</th>
+              <th v-else>{{ tr('Статус', 'Мәртебе') }}</th>
+              <th>{{ tr('Предыдущий отчет', 'Алдыңғы есеп') }}</th>
+              <th>{{ tr('Документы', 'Құжаттар') }}</th>
+              <th>{{ tr('Действие', 'Әрекет') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, index) in rows" :key="row.id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
-              <td data-label="Целевой индикатор">
+              <td :data-label="tr('Целевой индикатор', 'Мақсатты индикатор')">
                 <div
                   class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
                   role="button"
                   tabindex="0"
-                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
-                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                    @click="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                    @keyup.enter="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
+                    @keyup.space.prevent="openReadModal(tr('Целевой индикатор', 'Мақсатты индикатор'), row.development_indicator)"
                 >
                   <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                 </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
-              <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
-              <td v-if="isRejectedCategory" class="text-pretty" data-label="Причина Rejected">{{ row.review_note || '—' }}</td>
-              <td v-else data-label="Статус">
-                <span class="status-pill status-pending">На проверке</span>
+              <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">{{ row.execution_deadline || '—' }}</td>
+              <td class="text-pretty" :data-label="tr('Ответственные', 'Жауаптылар')">{{ row.responsible || '—' }}</td>
+              <td v-if="isRejectedCategory" class="text-pretty" :data-label="tr('Причина отклонения', 'Қабылданбау себебі')">{{ row.review_note || '—' }}</td>
+              <td v-else :data-label="tr('Статус', 'Мәртебе')">
+                <span class="status-pill status-pending">{{ tr('На проверке', 'Тексерісте') }}</span>
               </td>
-              <td data-label="Алдыңғы отчет">
+              <td :data-label="tr('Предыдущий отчет', 'Алдыңғы есеп')">
                 <div class="report-card">
                   <div
                     class="table-text-preview text-pretty"
                     :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
                     role="button"
                     tabindex="0"
-                    @click="openReadModal('Алдыңғы отчет', row.report_text)"
-                    @keyup.enter="openReadModal('Алдыңғы отчет', row.report_text)"
-                    @keyup.space.prevent="openReadModal('Алдыңғы отчет', row.report_text)"
+                    @click="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
+                    @keyup.enter="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
+                    @keyup.space.prevent="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
                   >
                     <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
                   </div>
                   <p class="meta">
-                    Отправлено: {{ formatDate(row.submitted_at) }}
+                    {{ tr('Отправлено:', 'Жіберілген:') }} {{ formatDate(row.submitted_at) }}
                   </p>
                 </div>
               </td>
-              <td data-label="Құжаттар">
+              <td :data-label="tr('Документы', 'Құжаттар')">
                 <div class="files-list">
                   <button
                     v-for="file in row.files"
@@ -739,19 +741,19 @@ onBeforeUnmount(() => {
                   >
                     {{ file.file_name }}
                   </button>
-                  <span v-if="!row.files || row.files.length === 0" class="muted">Файл жоқ</span>
+                  <span v-if="!row.files || row.files.length === 0" class="muted">{{ tr('Нет файла', 'Файл жоқ') }}</span>
                 </div>
               </td>
-              <td data-label="Әрекет">
+              <td :data-label="tr('Действие', 'Әрекет')">
                 <button
                   v-if="isRejectedCategory"
                   class="btn btn-primary action-btn"
                   type="button"
                   @click="openResubmitModal(row)"
                 >
-                  Исправить и отправить
+                  {{ tr('Исправить и отправить', 'Түзетіп жіберу') }}
                 </button>
-                <span v-else class="muted">Күтілуде</span>
+                <span v-else class="muted">{{ tr('Ожидание', 'Күтілуде') }}</span>
               </td>
             </tr>
           </tbody>
@@ -767,7 +769,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="modal-actions">
           <button class="btn btn-primary" type="button" @click="closeReadModal">
-            Жабу
+            {{ tr('Закрыть', 'Жабу') }}
           </button>
         </div>
       </div>
@@ -776,32 +778,32 @@ onBeforeUnmount(() => {
     <div v-if="reviewModalOpen" class="modal-backdrop" @click.self="closeReviewModal">
       <div class="modal-card execution-modal">
         <h3 class="modal-title">
-          {{ reviewMode === 'approve' ? 'Отчетты қабылдау' : 'Отчетты қабылдамау' }}
+          {{ reviewMode === 'approve' ? tr('Принятие отчета', 'Есепті қабылдау') : tr('Отклонение отчета', 'Есепті қабылдамау') }}
         </h3>
         <p class="modal-subtitle">
-          {{ activeReviewRow?.development_indicator || 'Индикатор' }}
+          {{ activeReviewRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
 
         <label class="modal-label">
           <span v-if="reviewMode === 'approve'">
-            Формула және қорытынды сан
+            {{ tr('Формула и итоговое значение', 'Формула және қорытынды сан') }}
           </span>
           <span v-else>
-            Неге қабылданбады
+            {{ tr('Причина отклонения', 'Неге қабылданбады') }}
           </span>
           <textarea
             v-model="reviewText"
             class="modal-textarea"
             rows="6"
             :placeholder="reviewMode === 'approve'
-              ? 'Мысалы: 157/525 ППС + 11587 обучающихся *100%=1,3%'
-              : 'Қабылданбау себебін жазыңыз...'"
+              ? tr('Например: 157/525 ППС + 11587 обучающихся *100%=1,3%', 'Мысалы: 157/525 ППС + 11587 обучающихся *100%=1,3%')
+              : tr('Укажите причину отклонения...', 'Қабылданбау себебін жазыңыз...')"
           />
         </label>
 
         <div class="modal-actions">
           <button class="btn btn-ghost" type="button" @click="closeReviewModal">
-            Бас тарту
+            {{ tr('Отмена', 'Бас тарту') }}
           </button>
           <button
             class="btn btn-primary"
@@ -809,7 +811,7 @@ onBeforeUnmount(() => {
             :disabled="reviewSaving"
             @click="submitReviewDecision"
           >
-            {{ reviewSaving ? 'Сақталуда...' : (reviewMode === 'approve' ? 'Жабу' : 'Отправить') }}
+            {{ reviewSaving ? tr('Сохранение...', 'Сақталуда...') : (reviewMode === 'approve' ? tr('Закрыть', 'Жабу') : tr('Отправить', 'Жіберу')) }}
           </button>
         </div>
       </div>
@@ -817,23 +819,23 @@ onBeforeUnmount(() => {
 
     <div v-if="resubmitModalOpen" class="modal-backdrop" @click.self="closeResubmitModal">
       <div class="modal-card execution-modal">
-        <h3 class="modal-title">Rejected отчетты қайта жіберу</h3>
+        <h3 class="modal-title">{{ tr('Повторная отправка отклоненного отчета', 'Қабылданбаған есепті қайта жіберу') }}</h3>
         <p class="modal-subtitle">
-          {{ resubmitRow?.development_indicator || 'Индикатор' }}
+          {{ resubmitRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
 
         <label class="modal-label">
-          Отчет мәтіні
+          {{ tr('Текст отчета', 'Есеп мәтіні') }}
           <textarea
             v-model="resubmitText"
             class="modal-textarea"
             rows="6"
-            placeholder="Түзетілген отчетты жазыңыз..."
+            :placeholder="tr('Введите исправленный отчет...', 'Түзетілген отчетты жазыңыз...')"
           />
         </label>
 
         <label class="modal-label">
-          Құжаттар (кемінде 1 файл)
+          {{ tr('Документы (минимум 1 файл)', 'Құжаттар (кемінде 1 файл)') }}
           <input
             class="file-input"
             type="file"
@@ -843,12 +845,12 @@ onBeforeUnmount(() => {
           />
         </label>
         <p v-if="resubmitFiles.length > 0" class="file-info">
-          Таңдалған файлдар: {{ resubmitFiles.map((file) => file.name).join(', ') }}
+          {{ tr('Выбранные файлы:', 'Таңдалған файлдар:') }} {{ resubmitFiles.map((file) => file.name).join(', ') }}
         </p>
 
         <div class="modal-actions">
           <button class="btn btn-ghost" type="button" @click="closeResubmitModal">
-            Бас тарту
+            {{ tr('Отмена', 'Бас тарту') }}
           </button>
           <button
             class="btn btn-primary"
@@ -856,7 +858,7 @@ onBeforeUnmount(() => {
             :disabled="resubmitSending"
             @click="submitResubmittedReport"
           >
-            {{ resubmitSending ? 'Жіберілуде...' : 'Отправить' }}
+            {{ resubmitSending ? tr('Отправка...', 'Жіберілуде...') : tr('Отправить', 'Жіберу') }}
           </button>
         </div>
       </div>
