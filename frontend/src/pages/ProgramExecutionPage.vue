@@ -22,9 +22,9 @@ const prorectorCategory = ref('pending')
 const yearTrackRef = ref(null)
 const canYearScrollLeft = ref(false)
 const canYearScrollRight = ref(false)
-const tableWrapRef = ref(null)
-const canTableScrollLeft = ref(false)
-const canTableScrollRight = ref(false)
+const readModalOpen = ref(false)
+const readModalTitle = ref('')
+const readModalText = ref('')
 
 const reviewModalOpen = ref(false)
 const reviewMode = ref('approve')
@@ -60,6 +60,23 @@ const pageSubtitle = computed(() => {
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function textPreview(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || '—'
+}
+
+function openReadModal(title, value) {
+  readModalTitle.value = title
+  readModalText.value = textPreview(value)
+  readModalOpen.value = true
+}
+
+function closeReadModal() {
+  readModalOpen.value = false
+  readModalTitle.value = ''
+  readModalText.value = ''
 }
 
 function updateYearScrollState() {
@@ -99,38 +116,6 @@ function handleYearWheel(event) {
   }
 
   track.scrollLeft += event.deltaY
-}
-
-function updateTableScrollState() {
-  const wrap = tableWrapRef.value
-  if (!wrap) {
-    canTableScrollLeft.value = false
-    canTableScrollRight.value = false
-    return
-  }
-
-  const maxScroll = Math.max(0, wrap.scrollWidth - wrap.clientWidth)
-  canTableScrollLeft.value = wrap.scrollLeft > 4
-  canTableScrollRight.value = wrap.scrollLeft < maxScroll - 4
-}
-
-function handleTableWheel(event) {
-  const wrap = tableWrapRef.value
-  if (!wrap) {
-    return
-  }
-
-  const hasHorizontalOverflow = wrap.scrollWidth > wrap.clientWidth + 1
-  if (!hasHorizontalOverflow) {
-    return
-  }
-
-  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-    return
-  }
-
-  event.preventDefault()
-  wrap.scrollLeft += event.deltaY
 }
 
 function formatPlannedValue(value, unit) {
@@ -203,8 +188,6 @@ async function loadRows() {
 
   const response = await fetchPlanReports(selectedYear.value, options)
   rows.value = response.items ?? []
-  await nextTick()
-  updateTableScrollState()
 }
 
 async function initialize() {
@@ -468,12 +451,10 @@ async function submitResubmittedReport() {
 onMounted(() => {
   initialize()
   window.addEventListener('resize', updateYearScrollState)
-  window.addEventListener('resize', updateTableScrollState)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateYearScrollState)
-  window.removeEventListener('resize', updateTableScrollState)
 })
 </script>
 
@@ -595,14 +576,7 @@ onBeforeUnmount(() => {
 
       <div
         v-else-if="isAdmin"
-        ref="tableWrapRef"
         class="table-wrap execution-table-wrap"
-        :class="{
-          'has-left-fade': canTableScrollLeft,
-          'has-right-fade': canTableScrollRight
-        }"
-        @scroll="updateTableScrollState"
-        @wheel="handleTableWheel"
       >
         <table class="table execution-table">
           <thead>
@@ -620,14 +594,34 @@ onBeforeUnmount(() => {
             <tr v-for="(row, index) in rows" :key="row.id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
               <td data-label="Целевой индикатор">
-                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
               <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
               <td class="text-pretty" data-label="Ответственные">{{ row.responsible || '—' }}</td>
               <td data-label="Выполнение индикатора">
                 <div class="report-card">
-                  <p class="report-text">{{ row.report_text || '—' }}</p>
+                  <div
+                    class="table-text-preview text-pretty"
+                    :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
+                    role="button"
+                    tabindex="0"
+                    @click="openReadModal('Выполнение индикатора', row.report_text)"
+                    @keyup.enter="openReadModal('Выполнение индикатора', row.report_text)"
+                    @keyup.space.prevent="openReadModal('Выполнение индикатора', row.report_text)"
+                  >
+                    <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
+                  </div>
                   <div class="files-list">
                     <button
                       v-for="file in row.files"
@@ -677,14 +671,7 @@ onBeforeUnmount(() => {
 
       <div
         v-else
-        ref="tableWrapRef"
         class="table-wrap execution-table-wrap"
-        :class="{
-          'has-left-fade': canTableScrollLeft,
-          'has-right-fade': canTableScrollRight
-        }"
-        @scroll="updateTableScrollState"
-        @wheel="handleTableWheel"
       >
         <table class="table execution-table execution-table-prorector">
           <thead>
@@ -704,7 +691,17 @@ onBeforeUnmount(() => {
             <tr v-for="(row, index) in rows" :key="row.id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
               <td data-label="Целевой индикатор">
-                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
               <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
@@ -715,7 +712,17 @@ onBeforeUnmount(() => {
               </td>
               <td data-label="Алдыңғы отчет">
                 <div class="report-card">
-                  <p class="report-text">{{ row.report_text || '—' }}</p>
+                  <div
+                    class="table-text-preview text-pretty"
+                    :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
+                    role="button"
+                    tabindex="0"
+                    @click="openReadModal('Алдыңғы отчет', row.report_text)"
+                    @keyup.enter="openReadModal('Алдыңғы отчет', row.report_text)"
+                    @keyup.space.prevent="openReadModal('Алдыңғы отчет', row.report_text)"
+                  >
+                    <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
+                  </div>
                   <p class="meta">
                     Отправлено: {{ formatDate(row.submitted_at) }}
                   </p>
@@ -751,6 +758,20 @@ onBeforeUnmount(() => {
         </table>
       </div>
     </section>
+
+    <div v-if="readModalOpen" class="modal-backdrop" @click.self="closeReadModal">
+      <div class="modal-card execution-read-modal">
+        <h3 class="modal-title">{{ readModalTitle }}</h3>
+        <div class="execution-read-content text-pretty">
+          {{ readModalText }}
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" @click="closeReadModal">
+            Жабу
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="reviewModalOpen" class="modal-backdrop" @click.self="closeReviewModal">
       <div class="modal-card execution-modal">
@@ -1001,42 +1022,9 @@ onBeforeUnmount(() => {
 }
 
 .execution-table-wrap {
-  position: relative;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  isolation: isolate;
-}
-
-.execution-table-wrap::before,
-.execution-table-wrap::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 44px;
-  z-index: 4;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.execution-table-wrap::before {
-  left: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
-}
-
-.execution-table-wrap::after {
-  right: 0;
-  background: linear-gradient(270deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
-}
-
-.execution-table-wrap.has-left-fade::before {
-  opacity: 1;
-}
-
-.execution-table-wrap.has-right-fade::after {
-  opacity: 1;
 }
 
 .execution-table {
@@ -1065,11 +1053,6 @@ onBeforeUnmount(() => {
   background: #f8fafc;
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.report-text {
-  margin: 0;
-  white-space: pre-wrap;
 }
 
 .meta {
@@ -1117,6 +1100,22 @@ onBeforeUnmount(() => {
 
 .execution-modal {
   width: min(720px, 100%);
+}
+
+.execution-read-modal {
+  width: min(760px, 100%);
+}
+
+.execution-read-content {
+  max-height: min(60vh, 460px);
+  overflow: auto;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 .modal-label {
@@ -1171,11 +1170,6 @@ onBeforeUnmount(() => {
     border: 0;
     box-shadow: none;
     background: transparent;
-  }
-
-  .execution-table-wrap::before,
-  .execution-table-wrap::after {
-    display: none;
   }
 
   .execution-table {

@@ -523,7 +523,7 @@ onBeforeUnmount(() => {
 
               <td data-label="Индикатор программы развития">
                 <div
-                  class="plans-preview-inline text-pretty"
+                  class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
                   role="button"
                   tabindex="0"
@@ -531,7 +531,7 @@ onBeforeUnmount(() => {
                   @keyup.enter="openReadModal('Индикатор Программы развития', row.development_indicator)"
                   @keyup.space.prevent="openReadModal('Индикатор Программы развития', row.development_indicator)"
                 >
-                  <span class="plans-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                  <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                 </div>
                 <span class="planned-value-chip">
                   {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
@@ -540,7 +540,7 @@ onBeforeUnmount(() => {
 
               <td data-label="Мероприятия по достижению индикатора">
                 <div
-                  class="plans-preview-inline text-pretty"
+                  class="table-text-preview text-pretty"
                   :class="{ 'is-empty': textPreview(row.activities) === '—' }"
                   role="button"
                   tabindex="0"
@@ -548,13 +548,13 @@ onBeforeUnmount(() => {
                   @keyup.enter="openReadModal('Мероприятия по достижению индикатора', row.activities)"
                   @keyup.space.prevent="openReadModal('Мероприятия по достижению индикатора', row.activities)"
                 >
-                  <span class="plans-preview-content">{{ textPreview(row.activities) }}</span>
+                  <span class="table-text-preview-content">{{ textPreview(row.activities) }}</span>
                 </div>
               </td>
 
               <td data-label="Срок исполнения">
                 <div class="plans-schedule-card">
-                  <div class="plans-cell-frame">{{ formatDateRange(row) || '—' }}</div>
+                  <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
                   <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
                     {{ scheduleStatusLabel(row.schedule_status) }}
                   </div>
@@ -566,9 +566,9 @@ onBeforeUnmount(() => {
 
               <td data-label="Ответственные">
                 <template v-if="isAdmin">
-                  <div class="plans-cell-frame responsible-preview text-pretty">
+                  <p class="table-inline-value text-pretty">
                     {{ row.responsible || 'Ответственные таңдалмаған' }}
-                  </div>
+                  </p>
                   <button
                     class="btn btn-primary plans-edit-row-btn"
                     type="button"
@@ -578,7 +578,7 @@ onBeforeUnmount(() => {
                   </button>
                 </template>
                 <template v-else>
-                  <div class="plans-cell-frame text-pretty">{{ row.responsible || '—' }}</div>
+                  <p class="table-inline-value text-pretty">{{ row.responsible || '—' }}</p>
                   <button
                     v-if="isProrector"
                     class="btn btn-primary plans-report-btn"
@@ -655,24 +655,30 @@ onBeforeUnmount(() => {
           </div>
 
           <label class="modal-label">
-            Ответственные
-            <div class="prorector-list row-edit-prorectors">
-              <label
-                v-for="prorector in prorectors"
-                :key="`row-edit-prorector-${prorector.id}`"
-                class="prorector-item"
-              >
-                <input
-                  v-model="rowEditForm.responsible_user_ids"
-                  type="checkbox"
-                  :value="Number(prorector.id)"
-                />
-                <span>
-                  <strong>{{ prorector.full_name }}</strong>
-                  <small>{{ prorector.username }}</small>
-                </span>
-              </label>
-              <p v-if="prorectors.length === 0" class="empty-state">
+            <div class="row-edit-prorectors-head">
+              <span>Ответственные</span>
+              <span class="row-edit-prorectors-meta">Таңдалды: {{ rowEditForm.responsible_user_ids.length }}</span>
+            </div>
+            <div class="row-edit-prorectors">
+              <div class="prorector-list">
+                <label
+                  v-for="prorector in prorectors"
+                  :key="`row-edit-prorector-${prorector.id}`"
+                  class="prorector-item"
+                  :class="{ 'is-selected': rowEditForm.responsible_user_ids.includes(Number(prorector.id)) }"
+                >
+                  <input
+                    v-model="rowEditForm.responsible_user_ids"
+                    type="checkbox"
+                    :value="Number(prorector.id)"
+                  />
+                  <span>
+                    <strong>{{ prorector.full_name }}</strong>
+                    <small>@{{ prorector.username }}</small>
+                  </span>
+                </label>
+              </div>
+              <p v-if="prorectors.length === 0" class="empty-state row-edit-prorectors-empty">
                 Проректорлар тізімі жоқ.
               </p>
             </div>
@@ -802,48 +808,6 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.plans-preview-inline {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.plans-preview-inline:focus-visible {
-  outline: 2px solid rgba(17, 120, 111, 0.5);
-  outline-offset: 4px;
-  border-radius: 8px;
-}
-
-.plans-preview-content {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-height: 1.48;
-  word-break: break-word;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
-  mask-image: linear-gradient(180deg, #000 72%, transparent);
-}
-
-.plans-preview-inline.is-empty .plans-preview-content {
-  color: var(--muted);
-  -webkit-mask-image: none;
-  mask-image: none;
-}
-
-.plans-cell-frame {
-  min-height: 5rem;
-  padding: 0.9rem;
-  border-radius: 18px;
-  border: 1px solid rgba(16, 33, 42, 0.08);
-  background: rgba(255, 255, 255, 0.68);
-}
-
 .planned-value-chip {
   display: inline-flex;
   align-items: center;
@@ -920,10 +884,6 @@ onBeforeUnmount(() => {
   color: #445e74;
 }
 
-.responsible-preview {
-  min-height: 5.2rem;
-}
-
 .plans-edit-row-btn,
 .plans-report-btn {
   width: 100%;
@@ -977,39 +937,85 @@ onBeforeUnmount(() => {
   gap: 0.55rem;
 }
 
+.row-edit-prorectors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  font-weight: 700;
+}
+
+.row-edit-prorectors-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .row-edit-prorectors {
-  max-height: 14rem;
+  margin-top: 0.5rem;
+  max-height: min(42vh, 300px);
   overflow: auto;
-  padding-right: 0.2rem;
+  padding: 0.55rem;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  border-radius: 18px;
+  background: rgba(248, 252, 251, 0.74);
 }
 
 .prorector-list {
   display: grid;
-  gap: 0.7rem;
-  margin-top: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.55rem;
+  margin-top: 0;
 }
 
 .prorector-item {
-  display: flex;
-  gap: 0.8rem;
-  align-items: flex-start;
-  padding: 0.95rem 1rem;
-  border-radius: 20px;
-  border: 1px solid rgba(16, 33, 42, 0.08);
-  background: rgba(255, 255, 255, 0.72);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.75rem 0.82rem;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.prorector-item:hover {
+  border-color: rgba(17, 120, 111, 0.38);
+  box-shadow: 0 8px 24px rgba(15, 31, 41, 0.08);
+}
+
+.prorector-item.is-selected {
+  border-color: rgba(17, 120, 111, 0.52);
+  background: linear-gradient(145deg, rgba(17, 120, 111, 0.12), rgba(17, 120, 111, 0.05));
+}
+
+.prorector-item input {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-top: 0.08rem;
+  accent-color: var(--accent);
 }
 
 .prorector-item span {
   display: grid;
-  gap: 0.15rem;
+  gap: 0.12rem;
+  min-width: 0;
 }
 
 .prorector-item strong {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .prorector-item small {
   color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.row-edit-prorectors-empty {
+  margin-top: 0.6rem;
 }
 
 .modal-label {
@@ -1103,12 +1109,6 @@ onBeforeUnmount(() => {
     font-size: 1rem;
   }
 
-  .plans-cell-frame {
-    min-height: auto;
-    padding: 0.72rem;
-    border-radius: 14px;
-  }
-
   .date-range-grid {
     grid-template-columns: 1fr;
   }
@@ -1116,6 +1116,10 @@ onBeforeUnmount(() => {
   .plans-edit-row-btn,
   .plans-report-btn {
     margin-top: 0.52rem;
+  }
+
+  .prorector-list {
+    grid-template-columns: 1fr;
   }
 }
 

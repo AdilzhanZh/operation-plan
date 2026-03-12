@@ -133,6 +133,9 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const periodFromYear = ref('')
 const periodToYear = ref('')
+const readModalOpen = ref(false)
+const readModalTitle = ref('')
+const readModalText = ref('')
 
 const createForm = reactive({
   targetIndicator: '',
@@ -228,6 +231,23 @@ const isAdmin = computed(() => authStore.user?.role === 'admin')
 function clearMessages() {
   errorMessage.value = ''
   successMessage.value = ''
+}
+
+function textPreview(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || '—'
+}
+
+function openReadModal(title, value) {
+  readModalTitle.value = title
+  readModalText.value = textPreview(value)
+  readModalOpen.value = true
+}
+
+function closeReadModal() {
+  readModalOpen.value = false
+  readModalTitle.value = ''
+  readModalText.value = ''
 }
 
 function clearPeriodFilter() {
@@ -603,12 +623,12 @@ onMounted(loadRows)
 
       <div v-if="loading" class="empty-state">Жүктелуде...</div>
       <template v-else>
-        <div v-if="hasFilteredRows" class="table-wrap">
+        <div v-if="hasFilteredRows" class="table-wrap planning-table-wrap">
           <table class="table planning-table">
             <thead>
               <tr>
-                <th>Целевой индикатор</th>
-                <th>ед. изм.</th>
+                <th class="col-sticky-indicator">Целевой индикатор</th>
+                <th class="col-sticky-unit">ед. изм.</th>
                 <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
                 <th v-if="isAdmin">Әрекет</th>
               </tr>
@@ -616,8 +636,20 @@ onMounted(loadRows)
 
             <tbody>
               <tr v-for="row in filteredRows" :key="row.id">
-                <td class="text-pretty">{{ row.target_indicator }}</td>
-                <td>{{ row.unit }}</td>
+                <td class="col-sticky-indicator">
+                  <div
+                    class="table-text-preview text-pretty"
+                    :class="{ 'is-empty': textPreview(row.target_indicator) === '—' }"
+                    role="button"
+                    tabindex="0"
+                    @click="openReadModal('Целевой индикатор', row.target_indicator)"
+                    @keyup.enter="openReadModal('Целевой индикатор', row.target_indicator)"
+                    @keyup.space.prevent="openReadModal('Целевой индикатор', row.target_indicator)"
+                  >
+                    <span class="table-text-preview-content">{{ textPreview(row.target_indicator) }}</span>
+                  </div>
+                </td>
+                <td class="col-sticky-unit">{{ row.unit }}</td>
                 <td v-for="year in tableYears" :key="`${row.id}-${year}`">
                   {{ row.year_values?.[year] ?? '—' }}
                 </td>
@@ -641,66 +673,75 @@ onMounted(loadRows)
       </template>
     </section>
 
-    <section v-if="isAdmin && editingId" class="panel panel-warning planning-card">
-      <div class="panel-header">
-        <div>
-          <h3 class="panel-title">Редактирование показателя</h3>
-          <p class="panel-subtitle">Изменения применяются к выбранной строке и сразу обновляют общую таблицу.</p>
+    <div v-if="readModalOpen" class="modal-backdrop" @click.self="closeReadModal">
+      <div class="modal-card planning-read-modal">
+        <h3 class="modal-title">{{ readModalTitle }}</h3>
+        <div class="planning-read-content text-pretty">
+          {{ readModalText }}
         </div>
-        <span class="kicker">Edit</span>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" @click="closeReadModal">Жабу</button>
+        </div>
       </div>
+    </div>
 
-      <div class="planning-main-fields">
-        <label>
-          Целевой индикатор
-          <textarea v-model="editForm.targetIndicator" rows="3" />
-        </label>
+    <div v-if="isAdmin && editingId" class="modal-backdrop" @click.self="cancelEdit">
+      <div class="modal-card planning-edit-modal">
+        <h3 class="modal-title">Редактирование показателя</h3>
+        <p class="modal-subtitle">Изменения сохраняются в общей таблице сразу после подтверждения.</p>
 
-        <label>
-          ед. изм.
-          <input v-model="editForm.unit" type="text" />
-        </label>
-      </div>
-
-      <div class="planning-year-editor">
-        <div class="planning-year-row" v-for="yearRow in editForm.years" :key="`edit-${yearRow.localId}`">
+        <div class="planning-main-fields">
           <label>
-            Жыл
-            <input v-model="yearRow.year" type="number" min="2000" max="2100" />
+            Целевой индикатор
+            <textarea v-model="editForm.targetIndicator" rows="3" />
           </label>
 
           <label>
-            Мән
-            <input v-model="yearRow.value" type="text" inputmode="decimal" />
+            ед. изм.
+            <input v-model="editForm.unit" type="text" />
           </label>
+        </div>
+
+        <div class="planning-year-editor planning-year-editor-modal">
+          <div class="planning-year-row" v-for="yearRow in editForm.years" :key="`edit-${yearRow.localId}`">
+            <label>
+              Жыл
+              <input v-model="yearRow.year" type="number" min="2000" max="2100" />
+            </label>
+
+            <label>
+              Мән
+              <input v-model="yearRow.value" type="text" inputmode="decimal" />
+            </label>
+
+            <button
+              type="button"
+              class="btn btn-danger planning-row-btn"
+              @click="removeEditYear(yearRow.localId)"
+              :disabled="editForm.years.length <= 1"
+            >
+              Жылды өшіру
+            </button>
+          </div>
 
           <button
+            v-if="canAddEditYear"
             type="button"
-            class="btn btn-danger planning-row-btn"
-            @click="removeEditYear(yearRow.localId)"
-            :disabled="editForm.years.length <= 1"
+            class="btn btn-ghost"
+            @click="addEditYear"
           >
-            Жылды өшіру
+            + Добавить год
           </button>
         </div>
 
-        <button
-          v-if="canAddEditYear"
-          type="button"
-          class="btn btn-ghost"
-          @click="addEditYear"
-        >
-          + Добавить год
-        </button>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" @click="cancelEdit">Болдырмау</button>
+          <button type="button" class="btn btn-primary" :disabled="saving" @click="saveEdit">
+            {{ saving ? 'Сақталуда...' : 'Сақтау' }}
+          </button>
+        </div>
       </div>
-
-      <div class="planning-actions">
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="saveEdit">
-          {{ saving ? 'Сақталуда...' : 'Сақтау' }}
-        </button>
-        <button type="button" class="btn btn-ghost" @click="cancelEdit">Болдырмау</button>
-      </div>
-    </section>
+    </div>
   </section>
 </template>
 
@@ -769,7 +810,92 @@ onMounted(loadRows)
 }
 
 .planning-table {
-  min-width: 860px;
+  min-width: 980px;
+}
+
+.planning-table-wrap {
+  overflow-x: auto;
+}
+
+.planning-table th,
+.planning-table td {
+  position: relative;
+}
+
+.planning-table .col-sticky-indicator {
+  position: sticky;
+  left: 0;
+  min-width: 360px;
+  width: 360px;
+  z-index: 5;
+}
+
+.planning-table .col-sticky-unit {
+  position: sticky;
+  left: 360px;
+  min-width: 110px;
+  width: 110px;
+  z-index: 6;
+}
+
+.planning-table thead .col-sticky-indicator,
+.planning-table thead .col-sticky-unit {
+  z-index: 7;
+  background: #f5f0e8;
+}
+
+.planning-table tbody tr {
+  --planning-sticky-bg: #fffdf9;
+}
+
+.planning-table tbody tr:nth-child(even) {
+  --planning-sticky-bg: #f8f3ec;
+}
+
+.planning-table tbody tr:hover {
+  --planning-sticky-bg: #e7f3f1;
+}
+
+.planning-table tbody td.col-sticky-indicator,
+.planning-table tbody td.col-sticky-unit {
+  background: var(--planning-sticky-bg);
+  background-clip: padding-box;
+}
+
+.planning-table .col-sticky-unit::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -1px;
+  width: 1px;
+  background: rgba(16, 33, 42, 0.14);
+}
+
+.planning-read-modal {
+  width: min(760px, 100%);
+}
+
+.planning-edit-modal {
+  width: min(960px, 100%);
+}
+
+.planning-year-editor-modal {
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.planning-read-content {
+  max-height: min(60vh, 460px);
+  overflow: auto;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 @media (max-width: 1040px) {
@@ -778,6 +904,10 @@ onMounted(loadRows)
   .planning-filter-grid,
   .planning-import-grid {
     grid-template-columns: 1fr;
+  }
+
+  .planning-edit-modal {
+    width: min(760px, 100%);
   }
 }
 

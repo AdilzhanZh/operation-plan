@@ -11,6 +11,9 @@ const errorMessage = ref('')
 const allRows = ref([])
 const authStore = useAuthStore()
 const isProrector = computed(() => authStore.user?.role === 'prorector')
+const readModalOpen = ref(false)
+const readModalTitle = ref('')
+const readModalText = ref('')
 
 const activeCard = ref('total')
 const stats = ref({
@@ -81,6 +84,23 @@ function statusLabel(status) {
     return 'Not Filled'
   }
   return 'In Progress'
+}
+
+function textPreview(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || '—'
+}
+
+function openReadModal(title, value) {
+  readModalTitle.value = title
+  readModalText.value = textPreview(value)
+  readModalOpen.value = true
+}
+
+function closeReadModal() {
+  readModalOpen.value = false
+  readModalTitle.value = ''
+  readModalText.value = ''
 }
 
 function formatPlannedValue(value, unit) {
@@ -356,7 +376,17 @@ onMounted(() => {
             <tr v-for="(row, index) in rows" :key="row.indicator_id">
               <td class="number-cell" data-label="№">{{ index + 1 }}</td>
               <td data-label="Целевой индикатор">
-                <div class="text-pretty">{{ row.development_indicator || '—' }}</div>
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.enter="openReadModal('Целевой индикатор', row.development_indicator)"
+                  @keyup.space.prevent="openReadModal('Целевой индикатор', row.development_indicator)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                </div>
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
               <td data-label="Срок исполнения">{{ row.execution_deadline || '—' }}</td>
@@ -372,6 +402,18 @@ onMounted(() => {
         </table>
       </div>
     </section>
+
+    <div v-if="readModalOpen" class="modal-backdrop" @click.self="closeReadModal">
+      <div class="modal-card dashboard-read-modal">
+        <h3 class="modal-title">{{ readModalTitle }}</h3>
+        <div class="dashboard-read-content text-pretty">
+          {{ readModalText }}
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" @click="closeReadModal">Жабу</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -469,6 +511,22 @@ onMounted(() => {
   font-weight: 700;
   color: #475569;
   background: #f8fafc;
+}
+
+.dashboard-read-modal {
+  width: min(760px, 100%);
+}
+
+.dashboard-read-content {
+  max-height: min(60vh, 460px);
+  overflow: auto;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 @media (max-width: 900px) {
