@@ -20,6 +20,7 @@ const rows = ref([])
 const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const adminCategory = ref('pending')
 const prorectorCategory = ref('pending')
 const yearTrackRef = ref(null)
 const canYearScrollLeft = ref(false)
@@ -27,6 +28,9 @@ const canYearScrollRight = ref(false)
 const readModalOpen = ref(false)
 const readModalTitle = ref('')
 const readModalText = ref('')
+const reportDetailsModalOpen = ref(false)
+const reportDetailsTitle = ref('')
+const reportDetailsRow = ref(null)
 
 const reviewModalOpen = ref(false)
 const reviewMode = ref('approve')
@@ -42,17 +46,30 @@ const resubmitSending = ref(false)
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 const isProrector = computed(() => authStore.user?.role === 'prorector')
-const isRejectedCategory = computed(() => prorectorCategory.value === 'rejected')
+const isAdminPendingCategory = computed(() => isAdmin.value && adminCategory.value === 'pending')
+const isAdminCompletedCategory = computed(() => isAdmin.value && adminCategory.value === 'completed')
+const isAdminRejectedCategory = computed(() => isAdmin.value && adminCategory.value === 'rejected')
+const isProrectorCompletedCategory = computed(() => isProrector.value && prorectorCategory.value === 'completed')
+const isProrectorRejectedCategory = computed(() => isProrector.value && prorectorCategory.value === 'rejected')
 const hasYears = computed(() => years.value.length > 0)
 const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReviewRow = computed(() => rows.value.find((item) => item.id === reviewRowId.value) ?? null)
 const pageSubtitle = computed(() => {
   if (isAdmin.value) {
-    return tr('Индикаторы, отправленные проректорами, файлы и решения по принятию/отклонению', 'Проректорлар жіберген индикаторлар, файлдар және қабылдау/қабылдамау')
+    if (isAdminCompletedCategory.value) {
+      return tr('Утвержденные отчеты с итоговой формулой и подтверждающими файлами', 'Қорытынды формуласы мен файлдары бар бекітілген есептер')
+    }
+    if (isAdminRejectedCategory.value) {
+      return tr('Отклоненные отчеты с причинами отклонения', 'Қабылданбаған есептер және қабылданбау себептері')
+    }
+    return tr('Индикаторы, ожидающие проверки и решения администратора', 'Әкімші тексеруін және шешімін күтіп тұрған индикаторлар')
   }
   if (isProrector.value) {
-    if (isRejectedCategory.value) {
+    if (isProrectorRejectedCategory.value) {
       return tr('Отклоненные отчеты. Можно исправить и отправить повторно', 'Қабылданбаған есептер. Түзетіп, қайта жіберуге болады')
+    }
+    if (isProrectorCompletedCategory.value) {
+      return tr('Принятые отчеты с итоговой формулой администратора', 'Әкімші қабылдаған есептер және қорытынды формула')
     }
     return tr('На проверке: отчеты, ожидающие решения администратора', 'На проверке: админнің жауабын күтіп тұрған отчеттар')
   }
@@ -79,6 +96,26 @@ function closeReadModal() {
   readModalOpen.value = false
   readModalTitle.value = ''
   readModalText.value = ''
+}
+
+function getFileCount(row) {
+  return Array.isArray(row?.files) ? row.files.length : 0
+}
+
+function openReportDetails(row, title) {
+  if (!row) {
+    return
+  }
+
+  reportDetailsRow.value = row
+  reportDetailsTitle.value = title
+  reportDetailsModalOpen.value = true
+}
+
+function closeReportDetails() {
+  reportDetailsModalOpen.value = false
+  reportDetailsTitle.value = ''
+  reportDetailsRow.value = null
 }
 
 function updateYearScrollState() {
@@ -144,20 +181,6 @@ function formatDate(value) {
   return date.toLocaleString(tr('ru-RU', 'kk-KZ'))
 }
 
-function statusLabel(status) {
-  const normalized = String(status ?? '').toLowerCase()
-  if (normalized === 'completed' || normalized === 'approved') {
-    return tr('Завершено', 'Аяқталған')
-  }
-  if (normalized === 'rejected') {
-    return tr('Отклонено', 'Қабылданбады')
-  }
-  if (normalized === 'overdue') {
-    return tr('Просрочено', 'Мерзімі өткен')
-  }
-  return tr('На проверке', 'Тексерісте')
-}
-
 function canReviewRow(row) {
   const normalized = String(row?.status ?? '').toLowerCase()
   return normalized === 'pending'
@@ -165,10 +188,30 @@ function canReviewRow(row) {
 
 async function loadYears() {
   const response = await fetchPlanYears()
-  years.value = response.years ?? []
+  const currentYear = new Date().getFullYear()
+  const normalizedYears = Array.isArray(response.years)
+    ? response.years
+        .map((year) => Number(year))
+        .filter((year) => Number.isInteger(year))
+        .sort((a, b) => a - b)
+    : []
 
-  if (!selectedYear.value && years.value.length > 0) {
-    selectedYear.value = String(years.value[years.value.length - 1])
+  years.value = normalizedYears
+
+  if (normalizedYears.length === 0) {
+    selectedYear.value = ''
+    await nextTick()
+    updateYearScrollState()
+    return
+  }
+
+  const currentSelection = Number(selectedYear.value)
+  const preferredYear = normalizedYears.includes(currentYear)
+    ? currentYear
+    : normalizedYears[normalizedYears.length - 1]
+
+  if (!selectedYear.value || !normalizedYears.includes(currentSelection)) {
+    selectedYear.value = String(preferredYear)
   }
 
   await nextTick()
@@ -183,9 +226,9 @@ async function loadRows() {
 
   const options = {}
   if (isProrector.value) {
-    options.status = isRejectedCategory.value ? 'rejected' : 'pending'
+    options.status = prorectorCategory.value
   } else if (isAdmin.value) {
-    options.status = 'pending,rejected'
+    options.status = adminCategory.value
   }
 
   const response = await fetchPlanReports(selectedYear.value, options)
@@ -237,6 +280,27 @@ async function handleProrectorCategoryChange(category) {
   }
 
   prorectorCategory.value = category
+  loading.value = true
+  clearMessages()
+
+  try {
+    await loadRows()
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? tr('Не удалось загрузить данные по категории', 'Категория бойынша мәліметтерді жүктеу мүмкін болмады')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleAdminCategoryChange(category) {
+  if (!isAdmin.value || adminCategory.value === category) {
+    return
+  }
+
+  adminCategory.value = category
   loading.value = true
   clearMessages()
 
@@ -526,7 +590,34 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="isProrector" class="execution-categories">
+      <div v-if="isAdmin" class="execution-categories">
+        <button
+          class="btn btn-ghost execution-category-btn"
+          :class="{ 'is-active': adminCategory === 'pending' }"
+          type="button"
+          @click="handleAdminCategoryChange('pending')"
+        >
+          {{ tr('На проверке', 'Тексерісте') }}
+        </button>
+        <button
+          class="btn btn-ghost execution-category-btn"
+          :class="{ 'is-active': adminCategory === 'completed' }"
+          type="button"
+          @click="handleAdminCategoryChange('completed')"
+        >
+          {{ tr('Завершено', 'Аяқталған') }}
+        </button>
+        <button
+          class="btn btn-ghost execution-category-btn"
+          :class="{ 'is-active': adminCategory === 'rejected' }"
+          type="button"
+          @click="handleAdminCategoryChange('rejected')"
+        >
+          {{ tr('Отклонено', 'Қабылданбаған') }}
+        </button>
+      </div>
+
+      <div v-else-if="isProrector" class="execution-categories">
         <button
           class="btn btn-ghost execution-category-btn"
           :class="{ 'is-active': prorectorCategory === 'pending' }"
@@ -534,6 +625,14 @@ onBeforeUnmount(() => {
           @click="handleProrectorCategoryChange('pending')"
         >
           {{ tr('На проверке', 'Тексерісте') }}
+        </button>
+        <button
+          class="btn btn-ghost execution-category-btn"
+          :class="{ 'is-active': prorectorCategory === 'completed' }"
+          type="button"
+          @click="handleProrectorCategoryChange('completed')"
+        >
+          {{ tr('Завершено', 'Аяқталған') }}
         </button>
         <button
           class="btn btn-ghost execution-category-btn"
@@ -564,7 +663,21 @@ onBeforeUnmount(() => {
       </div>
       <div v-else-if="rows.length === 0" class="empty-state">
         <template v-if="isProrector">
-          <template v-if="isRejectedCategory">
+          <template v-if="isProrectorRejectedCategory">
+            {{ tr(`За ${selectedYear} год нет отклоненных отчетов.`, `${selectedYear} жылына қабылданбаған есептер жоқ.`) }}
+          </template>
+          <template v-else-if="isProrectorCompletedCategory">
+            {{ tr(`За ${selectedYear} год нет завершенных отчетов.`, `${selectedYear} жылына аяқталған есептер жоқ.`) }}
+          </template>
+          <template v-else>
+            {{ tr(`За ${selectedYear} год нет отчетов в категории На проверке.`, `${selectedYear} жылына На проверке категориясында отчеттар жоқ.`) }}
+          </template>
+        </template>
+        <template v-else-if="isAdmin">
+          <template v-if="isAdminCompletedCategory">
+            {{ tr(`За ${selectedYear} год нет завершенных отчетов.`, `${selectedYear} жылына аяқталған есептер жоқ.`) }}
+          </template>
+          <template v-else-if="isAdminRejectedCategory">
             {{ tr(`За ${selectedYear} год нет отклоненных отчетов.`, `${selectedYear} жылына қабылданбаған есептер жоқ.`) }}
           </template>
           <template v-else>
@@ -588,8 +701,9 @@ onBeforeUnmount(() => {
               <th>{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
               <th>{{ tr('Ответственные', 'Жауаптылар') }}</th>
               <th>{{ tr('Выполнение индикатора', 'Индикатор орындалуы') }}</th>
-              <th>{{ tr('Статус', 'Мәртебе') }}</th>
-              <th>{{ tr('Решение', 'Шешім') }}</th>
+              <th v-if="isAdminCompletedCategory">{{ tr('Итог', 'Қорытынды') }}</th>
+              <th v-else-if="isAdminRejectedCategory">{{ tr('Причина отклонения', 'Қабылданбау себебі') }}</th>
+              <th v-if="isAdminPendingCategory">{{ tr('Решение', 'Шешім') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -610,31 +724,43 @@ onBeforeUnmount(() => {
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
               <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty" :data-label="tr('Ответственные', 'Жауаптылар')">{{ row.responsible || '—' }}</td>
+              <td :data-label="tr('Ответственные', 'Жауаптылар')">
+                <div
+                  class="table-text-preview text-pretty responsible-preview"
+                  :class="{ 'is-empty': textPreview(row.responsible) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                  @keyup.enter="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                  @keyup.space.prevent="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.responsible) }}</span>
+                </div>
+              </td>
               <td :data-label="tr('Выполнение индикатора', 'Индикатор орындалуы')">
-                <div class="report-card">
+                <div class="report-compact">
                   <div
-                    class="table-text-preview text-pretty"
+                    class="table-text-preview text-pretty report-compact-preview"
                     :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
                     role="button"
                     tabindex="0"
-                    @click="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
-                    @keyup.enter="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
-                    @keyup.space.prevent="openReadModal(tr('Выполнение индикатора', 'Индикатор орындалуы'), row.report_text)"
+                    @click="openReportDetails(row, tr('Выполнение индикатора', 'Индикатор орындалуы'))"
+                    @keyup.enter="openReportDetails(row, tr('Выполнение индикатора', 'Индикатор орындалуы'))"
+                    @keyup.space.prevent="openReportDetails(row, tr('Выполнение индикатора', 'Индикатор орындалуы'))"
                   >
                     <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
                   </div>
-                  <div class="files-list">
+                  <div class="report-compact-footer">
+                    <span class="planned-value-chip report-count-chip">
+                      {{ tr('Файлы', 'Файлдар') }}: {{ getFileCount(row) }}
+                    </span>
                     <button
-                      v-for="file in row.files"
-                      :key="file.id"
-                      class="btn btn-ghost report-file-chip"
+                      class="btn btn-ghost report-details-btn"
                       type="button"
-                      @click="handleDownload(file)"
+                      @click="openReportDetails(row, tr('Выполнение индикатора', 'Индикатор орындалуы'))"
                     >
-                      {{ file.file_name }}
+                      {{ tr('Подробнее', 'Толығырақ') }}
                     </button>
-                    <span v-if="!row.files || row.files.length === 0" class="muted">{{ tr('Нет файла', 'Файл жоқ') }}</span>
                   </div>
                   <p class="meta">
                     {{ tr('Отправил:', 'Жіберген:') }} {{ row.submitted_by_name || row.submitted_by }} • {{ formatDate(row.submitted_at) }}
@@ -642,20 +768,35 @@ onBeforeUnmount(() => {
                   <p v-if="row.reviewed_by_name" class="meta">
                     {{ tr('Проверил:', 'Тексерген:') }} {{ row.reviewed_by_name }} • {{ formatDate(row.reviewed_at) }}
                   </p>
-                  <p v-if="row.approval_formula" class="formula-text text-pretty">
-                    {{ tr('Формула:', 'Формула:') }} {{ row.approval_formula }}
-                  </p>
-                  <p v-if="row.review_note" class="reject-note text-pretty">
-                    {{ tr('Причина:', 'Себеп:') }} {{ row.review_note }}
-                  </p>
                 </div>
               </td>
-              <td :data-label="tr('Статус', 'Мәртебе')">
-                <span class="status-pill" :class="`status-${row.status}`">
-                  {{ statusLabel(row.status) }}
-                </span>
+              <td v-if="isAdminCompletedCategory" :data-label="tr('Итог', 'Қорытынды')">
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.approval_formula) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                  @keyup.enter="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                  @keyup.space.prevent="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.approval_formula) }}</span>
+                </div>
               </td>
-              <td class="actions-cell" :data-label="tr('Решение', 'Шешім')">
+              <td v-else-if="isAdminRejectedCategory" :data-label="tr('Причина отклонения', 'Қабылданбау себебі')">
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.review_note) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                  @keyup.enter="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                  @keyup.space.prevent="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.review_note) }}</span>
+                </div>
+              </td>
+              <td v-if="isAdminPendingCategory" class="actions-cell" :data-label="tr('Решение', 'Шешім')">
                 <template v-if="canReviewRow(row)">
                   <button class="btn btn-primary action-btn" type="button" @click="openApproveModal(row)">
                     {{ tr('Принять', 'Қабылдау') }}
@@ -682,8 +823,8 @@ onBeforeUnmount(() => {
               <th>{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
               <th>{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
               <th>{{ tr('Ответственные', 'Жауаптылар') }}</th>
-              <th v-if="isRejectedCategory">{{ tr('Причина отклонения', 'Қабылданбау себебі') }}</th>
-              <th v-else>{{ tr('Статус', 'Мәртебе') }}</th>
+              <th v-if="isProrectorCompletedCategory">{{ tr('Итог', 'Қорытынды') }}</th>
+              <th v-else-if="isProrectorRejectedCategory">{{ tr('Причина отклонения', 'Қабылданбау себебі') }}</th>
               <th>{{ tr('Предыдущий отчет', 'Алдыңғы есеп') }}</th>
               <th>{{ tr('Документы', 'Құжаттар') }}</th>
               <th>{{ tr('Действие', 'Әрекет') }}</th>
@@ -707,23 +848,69 @@ onBeforeUnmount(() => {
                 <span class="planned-value-chip">{{ formatPlannedValue(row.planned_value, row.unit) }}</span>
               </td>
               <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">{{ row.execution_deadline || '—' }}</td>
-              <td class="text-pretty" :data-label="tr('Ответственные', 'Жауаптылар')">{{ row.responsible || '—' }}</td>
-              <td v-if="isRejectedCategory" class="text-pretty" :data-label="tr('Причина отклонения', 'Қабылданбау себебі')">{{ row.review_note || '—' }}</td>
-              <td v-else :data-label="tr('Статус', 'Мәртебе')">
-                <span class="status-pill status-pending">{{ tr('На проверке', 'Тексерісте') }}</span>
+              <td :data-label="tr('Ответственные', 'Жауаптылар')">
+                <div
+                  class="table-text-preview text-pretty responsible-preview"
+                  :class="{ 'is-empty': textPreview(row.responsible) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                  @keyup.enter="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                  @keyup.space.prevent="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.responsible) }}</span>
+                </div>
+              </td>
+              <td v-if="isProrectorCompletedCategory" :data-label="tr('Итог', 'Қорытынды')">
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.approval_formula) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                  @keyup.enter="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                  @keyup.space.prevent="openReadModal(tr('Итог', 'Қорытынды'), row.approval_formula)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.approval_formula) }}</span>
+                </div>
+              </td>
+              <td v-else-if="isProrectorRejectedCategory" :data-label="tr('Причина отклонения', 'Қабылданбау себебі')">
+                <div
+                  class="table-text-preview text-pretty"
+                  :class="{ 'is-empty': textPreview(row.review_note) === '—' }"
+                  role="button"
+                  tabindex="0"
+                  @click="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                  @keyup.enter="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                  @keyup.space.prevent="openReadModal(tr('Причина отклонения', 'Қабылданбау себебі'), row.review_note)"
+                >
+                  <span class="table-text-preview-content">{{ textPreview(row.review_note) }}</span>
+                </div>
               </td>
               <td :data-label="tr('Предыдущий отчет', 'Алдыңғы есеп')">
-                <div class="report-card">
+                <div class="report-compact">
                   <div
-                    class="table-text-preview text-pretty"
+                    class="table-text-preview text-pretty report-compact-preview"
                     :class="{ 'is-empty': textPreview(row.report_text) === '—' }"
                     role="button"
                     tabindex="0"
-                    @click="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
-                    @keyup.enter="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
-                    @keyup.space.prevent="openReadModal(tr('Предыдущий отчет', 'Алдыңғы есеп'), row.report_text)"
+                    @click="openReportDetails(row, tr('Предыдущий отчет', 'Алдыңғы есеп'))"
+                    @keyup.enter="openReportDetails(row, tr('Предыдущий отчет', 'Алдыңғы есеп'))"
+                    @keyup.space.prevent="openReportDetails(row, tr('Предыдущий отчет', 'Алдыңғы есеп'))"
                   >
                     <span class="table-text-preview-content">{{ textPreview(row.report_text) }}</span>
+                  </div>
+                  <div class="report-compact-footer">
+                    <span class="planned-value-chip report-count-chip">
+                      {{ tr('Файлы', 'Файлдар') }}: {{ getFileCount(row) }}
+                    </span>
+                    <button
+                      class="btn btn-ghost report-details-btn"
+                      type="button"
+                      @click="openReportDetails(row, tr('Предыдущий отчет', 'Алдыңғы есеп'))"
+                    >
+                      {{ tr('Подробнее', 'Толығырақ') }}
+                    </button>
                   </div>
                   <p class="meta">
                     {{ tr('Отправлено:', 'Жіберілген:') }} {{ formatDate(row.submitted_at) }}
@@ -746,13 +933,14 @@ onBeforeUnmount(() => {
               </td>
               <td :data-label="tr('Действие', 'Әрекет')">
                 <button
-                  v-if="isRejectedCategory"
+                  v-if="isProrectorRejectedCategory"
                   class="btn btn-primary action-btn"
                   type="button"
                   @click="openResubmitModal(row)"
                 >
                   {{ tr('Исправить и отправить', 'Түзетіп жіберу') }}
                 </button>
+                <span v-else-if="isProrectorCompletedCategory" class="muted">{{ tr('Рассмотрено', 'Қаралған') }}</span>
                 <span v-else class="muted">{{ tr('Ожидание', 'Күтілуде') }}</span>
               </td>
             </tr>
@@ -775,6 +963,68 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div v-if="reportDetailsModalOpen" class="modal-backdrop" @click.self="closeReportDetails">
+      <div class="modal-card execution-report-modal">
+        <h3 class="modal-title">{{ reportDetailsTitle }}</h3>
+        <p class="modal-subtitle text-pretty">
+          {{ reportDetailsRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
+        </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
+
+        <div class="report-details-grid">
+          <section class="report-details-section">
+            <h4 class="report-details-title">{{ tr('Текст отчета', 'Есеп мәтіні') }}</h4>
+            <div class="execution-read-content text-pretty report-details-content">
+              {{ textPreview(reportDetailsRow?.report_text) }}
+            </div>
+          </section>
+
+          <section class="report-details-section">
+            <h4 class="report-details-title">{{ tr('Документы', 'Құжаттар') }}</h4>
+            <div class="files-list report-details-files">
+              <button
+                v-for="file in (reportDetailsRow?.files ?? [])"
+                :key="file.id"
+                class="btn btn-ghost report-file-chip"
+                type="button"
+                @click="handleDownload(file)"
+              >
+                {{ file.file_name }}
+              </button>
+              <span
+                v-if="!reportDetailsRow?.files || reportDetailsRow.files.length === 0"
+                class="muted"
+              >
+                {{ tr('Нет файла', 'Файл жоқ') }}
+              </span>
+            </div>
+          </section>
+        </div>
+
+        <div class="report-details-meta">
+          <p class="meta">
+            {{ tr('Отправил:', 'Жіберген:') }} {{ reportDetailsRow?.submitted_by_name || reportDetailsRow?.submitted_by || '—' }} • {{ formatDate(reportDetailsRow?.submitted_at) }}
+          </p>
+          <p v-if="reportDetailsRow?.reviewed_by_name" class="meta">
+            {{ tr('Проверил:', 'Тексерген:') }} {{ reportDetailsRow.reviewed_by_name }} • {{ formatDate(reportDetailsRow.reviewed_at) }}
+          </p>
+          <p v-if="reportDetailsRow?.approval_formula" class="formula-text text-pretty">
+            {{ tr('Формула:', 'Формула:') }} {{ reportDetailsRow.approval_formula }}
+          </p>
+          <p v-if="reportDetailsRow?.review_note" class="reject-note text-pretty">
+            {{ tr('Причина:', 'Себеп:') }} {{ reportDetailsRow.review_note }}
+          </p>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" @click="closeReportDetails">
+            {{ tr('Закрыть', 'Жабу') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="reviewModalOpen" class="modal-backdrop" @click.self="closeReviewModal">
       <div class="modal-card execution-modal">
         <h3 class="modal-title">
@@ -783,6 +1033,8 @@ onBeforeUnmount(() => {
         <p class="modal-subtitle">
           {{ activeReviewRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
         <label class="modal-label">
           <span v-if="reviewMode === 'approve'">
@@ -823,6 +1075,8 @@ onBeforeUnmount(() => {
         <p class="modal-subtitle">
           {{ resubmitRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
         <label class="modal-label">
           {{ tr('Текст отчета', 'Есеп мәтіні') }}
@@ -1039,11 +1293,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.report-card {
-  display: grid;
-  gap: 0.55rem;
-}
-
 .planned-value-chip {
   display: inline-flex;
   align-items: center;
@@ -1055,6 +1304,42 @@ onBeforeUnmount(() => {
   background: #f8fafc;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.responsible-preview .table-text-preview-content {
+  -webkit-line-clamp: 3;
+  -webkit-mask-image: linear-gradient(180deg, #000 76%, transparent);
+  mask-image: linear-gradient(180deg, #000 76%, transparent);
+}
+
+.report-compact {
+  display: grid;
+  gap: 0.46rem;
+  align-content: start;
+}
+
+.report-compact-preview .table-text-preview-content {
+  -webkit-line-clamp: 3;
+  -webkit-mask-image: linear-gradient(180deg, #000 74%, transparent);
+  mask-image: linear-gradient(180deg, #000 74%, transparent);
+}
+
+.report-compact-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.report-count-chip {
+  margin-top: 0;
+}
+
+.report-details-btn {
+  min-height: auto;
+  padding: 0.36rem 0.72rem;
+  font-size: 0.78rem;
 }
 
 .meta {
@@ -1108,6 +1393,10 @@ onBeforeUnmount(() => {
   width: min(760px, 100%);
 }
 
+.execution-report-modal {
+  width: min(860px, 100%);
+}
+
 .execution-read-content {
   max-height: min(60vh, 460px);
   overflow: auto;
@@ -1118,6 +1407,37 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.72);
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+.report-details-grid {
+  display: grid;
+  gap: 0.78rem;
+  margin-top: 0.7rem;
+}
+
+.report-details-title {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.report-details-content {
+  margin-top: 0.45rem;
+}
+
+.report-details-files {
+  margin-top: 0.45rem;
+  max-height: min(24vh, 180px);
+  overflow: auto;
+}
+
+.report-details-meta {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.82rem;
 }
 
 .modal-label {
@@ -1229,6 +1549,11 @@ onBeforeUnmount(() => {
 
   .year-track {
     padding: 0.32rem;
+  }
+
+  .report-details-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 

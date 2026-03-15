@@ -21,6 +21,7 @@ const activeCard = ref('total')
 const stats = ref({
   total: 0,
   completed: 0,
+  pending: 0,
   not_filled: 0,
   in_progress: 0,
   overdue: 0
@@ -32,6 +33,7 @@ const cardConfig = computed(() => {
   if (isProrector.value) {
     return [
       { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
+      { key: 'pending', label: tr('На проверке', 'Тексерісте') },
       { key: 'completed', label: tr('Завершено', 'Аяқталған') },
       { key: 'overdue', label: tr('Просрочено', 'Мерзімі өткен') }
     ]
@@ -39,6 +41,7 @@ const cardConfig = computed(() => {
   return [
     { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
     { key: 'completed', label: tr('Завершено', 'Аяқталған') },
+    { key: 'pending', label: tr('На проверке', 'Тексерісте') },
     { key: 'not_filled', label: tr('Не заполнено', 'Толтырылмаған') },
     { key: 'in_progress', label: tr('В работе', 'Жұмыста') },
     { key: 'overdue', label: tr('Просрочено', 'Мерзімі өткен') }
@@ -48,6 +51,7 @@ const cardConfig = computed(() => {
 function cardMetaLabel(cardKey) {
   if (cardKey === 'total') return tr('Полный пул индикаторов выбранного года', 'Таңдалған жылдың толық индикаторлар пулы')
   if (cardKey === 'completed') return tr('Позиции с утвержденным завершением', 'Расталған аяқталу статусы бар позициялар')
+  if (cardKey === 'pending') return tr('Индикаторы, ожидающие проверки администратора', 'Әкімші тексеруін күтіп тұрған индикаторлар')
   if (cardKey === 'not_filled') return tr('Индикаторы без заполненного графика или отчета', 'Кестесі не есебі толтырылмаған индикаторлар')
   if (cardKey === 'in_progress') return tr('Активные задачи в пределах срока', 'Мерзім ішіндегі белсенді тапсырмалар')
   if (cardKey === 'overdue') return tr('Точки, требующие немедленного контроля', 'Жедел бақылауды қажет ететін позициялар')
@@ -64,6 +68,8 @@ const listTitle = computed(() => {
   switch (activeCard.value) {
     case 'completed':
       return tr('Список завершенных индикаторов', 'Аяқталған индикаторлар тізімі')
+    case 'pending':
+      return tr('Список индикаторов на проверке', 'Тексерістегі индикаторлар тізімі')
     case 'in_progress':
       return tr('Список индикаторов в работе', 'Жұмыстағы индикаторлар тізімі')
     case 'not_filled':
@@ -79,6 +85,9 @@ function statusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'completed') {
     return tr('Завершено', 'Аяқталған')
+  }
+  if (normalized === 'pending') {
+    return tr('На проверке', 'Тексерісте')
   }
   if (normalized === 'overdue') {
     return tr('Просрочено', 'Мерзімі өткен')
@@ -144,6 +153,8 @@ function statusFilterByCard(cardKey) {
   switch (cardKey) {
     case 'completed':
       return 'completed'
+    case 'pending':
+      return 'pending'
     case 'in_progress':
       return 'in_progress'
     case 'not_filled':
@@ -157,6 +168,12 @@ function statusFilterByCard(cardKey) {
 
 function deriveDashboardStatus(row) {
   const reportStatus = String(row?.report_status ?? '').toLowerCase()
+  if (reportStatus === 'pending') {
+    return 'pending'
+  }
+  if (reportStatus === 'rejected') {
+    return 'in_progress'
+  }
   if (reportStatus === 'completed') {
     return 'completed'
   }
@@ -176,6 +193,7 @@ function recalculateStats() {
   const next = {
     total: allRows.value.length,
     completed: 0,
+    pending: 0,
     not_filled: 0,
     in_progress: 0,
     overdue: 0
@@ -185,6 +203,10 @@ function recalculateStats() {
     const status = String(row.dashboard_status ?? '').toLowerCase()
     if (status === 'completed') {
       next.completed += 1
+      continue
+    }
+    if (status === 'pending') {
+      next.pending += 1
       continue
     }
     if (status === 'overdue') {
@@ -245,6 +267,7 @@ async function loadRows() {
     stats.value = {
       total: 0,
       completed: 0,
+      pending: 0,
       not_filled: 0,
       in_progress: 0,
       overdue: 0

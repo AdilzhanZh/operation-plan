@@ -534,6 +534,10 @@ button:disabled,
   color: #1b6fa8;
 }
 
+.modal-feedback {
+  margin: 0.75rem 0 0;
+}
+
 .state-box,
 .empty-state {
   padding: 1.15rem 1.2rem;

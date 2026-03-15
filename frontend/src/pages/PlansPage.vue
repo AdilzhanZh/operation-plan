@@ -618,6 +618,8 @@ onBeforeUnmount(() => {
         <p class="modal-subtitle">
           {{ activeRowEdit?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
         <div class="row-edit-grid">
           <label class="modal-label">
@@ -709,6 +711,8 @@ onBeforeUnmount(() => {
         <p class="modal-subtitle">
           {{ activeReportRow?.development_indicator || tr('Индикатор', 'Индикатор') }}
         </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
         <label class="modal-label">
           {{ tr('Текст отчета', 'Есеп мәтіні') }}

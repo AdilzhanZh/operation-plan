@@ -694,6 +694,8 @@ onMounted(loadRows)
       <div class="modal-card planning-edit-modal">
         <h3 class="modal-title">{{ tr('Редактирование показателя', 'Көрсеткішті өзгерту') }}</h3>
         <p class="modal-subtitle">{{ tr('Изменения сохраняются в общей таблице сразу после подтверждения.', 'Өзгерістер растаудан кейін кестеге бірден сақталады.') }}</p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
         <div class="planning-main-fields">
           <label>

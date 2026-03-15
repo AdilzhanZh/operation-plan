@@ -257,12 +257,12 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		       END,
 		       COALESCE((
 		           SELECT CASE
-		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) IN ('completed', 'approved')) > 0
-		               THEN 'completed'
+		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) = 'pending') > 0
+		               THEN 'pending'
 		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) = 'rejected') > 0
 		               THEN 'rejected'
-		               WHEN COUNT(*) > 0
-		               THEN 'pending'
+		               WHEN COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(rs.status, ''))) IN ('completed', 'approved')) > 0
+		               THEN 'completed'
 		               ELSE ''
 		           END
 		           FROM report_submissions rs
