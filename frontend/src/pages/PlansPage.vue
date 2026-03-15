@@ -32,7 +32,6 @@ const readModalText = ref('')
 const rowEditModalOpen = ref(false)
 const rowEditIndicatorId = ref(null)
 const rowEditForm = ref({
-  development_indicator: '',
   activities: '',
   execution_start_date: '',
   execution_end_date: '',
@@ -339,7 +338,6 @@ function openRowEditModal(row) {
 
   rowEditIndicatorId.value = row.indicator_id
   rowEditForm.value = {
-    development_indicator: String(row.development_indicator ?? ''),
     activities: String(row.activities ?? ''),
     execution_start_date: String(row.execution_start_date ?? ''),
     execution_end_date: String(row.execution_end_date ?? ''),
@@ -353,7 +351,6 @@ function closeRowEditModal() {
   rowEditModalOpen.value = false
   rowEditIndicatorId.value = null
   rowEditForm.value = {
-    development_indicator: '',
     activities: '',
     execution_start_date: '',
     execution_end_date: '',
@@ -372,7 +369,6 @@ async function saveRowFromModal() {
     return
   }
 
-  row.development_indicator = rowEditForm.value.development_indicator.trim()
   row.activities = rowEditForm.value.activities.trim()
   row.execution_start_date = String(rowEditForm.value.execution_start_date ?? '')
   row.execution_end_date = String(rowEditForm.value.execution_end_date ?? '')
@@ -624,12 +620,16 @@ onBeforeUnmount(() => {
         <div class="row-edit-grid">
           <label class="modal-label">
             {{ tr('Индикатор Программы развития', 'Бағдарлама индикаторы') }}
-            <textarea
-              v-model="rowEditForm.development_indicator"
-              class="plans-edit-textarea"
-              rows="5"
-              :placeholder="tr('Введите текст индикатора...', 'Индикатор мәтінін жазыңыз...')"
-            />
+            <div
+              class="plans-readonly-indicator text-pretty"
+              role="button"
+              tabindex="0"
+              @click="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
+              @keyup.enter="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
+              @keyup.space.prevent="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
+            >
+              {{ textPreview(activeRowEdit?.development_indicator) }}
+            </div>
           </label>
 
           <label class="modal-label">
@@ -812,6 +812,17 @@ onBeforeUnmount(() => {
 .plans-textarea,
 .plans-input {
   width: 100%;
+}
+
+.plans-readonly-indicator {
+  min-height: 6.2rem;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(16, 33, 42, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  line-height: 1.5;
+  cursor: pointer;
 }
 
 .planned-value-chip {
