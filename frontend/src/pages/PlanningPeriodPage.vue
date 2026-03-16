@@ -530,18 +530,29 @@ onMounted(loadRows)
         </div>
 
         <div class="planning-import-grid">
-          <input
-            :key="importInputKey"
-            type="file"
-            accept=".xlsx"
-            @change="handleImportFileChange"
-          />
+          <div class="planning-import-file">
+            <input
+              :id="`planning-import-file-${importInputKey}`"
+              :key="importInputKey"
+              class="planning-file-input"
+              type="file"
+              accept=".xlsx"
+              @change="handleImportFileChange"
+            />
+            <label
+              :for="`planning-import-file-${importInputKey}`"
+              class="btn btn-ghost planning-file-trigger"
+            >
+              {{ tr('Выбрать файл', 'Файлды таңдау') }}
+            </label>
+            <span class="planning-file-name" :class="{ 'is-placeholder': !importFileName }">
+              {{ importFileName || tr('Файл не выбран', 'Файл таңдалмаған') }}
+            </span>
+          </div>
           <button type="button" class="btn btn-accent planning-inline-btn" :disabled="importing" @click="importFromExcel">
             {{ importing ? tr('Импорт...', 'Импортталуда...') : tr('Импортировать', 'Импорт жасау') }}
           </button>
         </div>
-
-        <p v-if="importFileName" class="planning-note">{{ tr('Выбранный файл:', 'Таңдалған файл:') }} {{ importFileName }}</p>
       </section>
     </div>
 
@@ -779,6 +790,50 @@ onMounted(loadRows)
   justify-content: center;
 }
 
+.planning-import-file {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.planning-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.planning-file-trigger {
+  min-width: 11rem;
+  justify-content: center;
+}
+
+.planning-file-name {
+  min-width: 0;
+  min-height: 2.85rem;
+  display: flex;
+  align-items: center;
+  padding: 0.78rem 0.92rem;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.planning-file-name.is-placeholder {
+  color: var(--muted);
+}
+
 .planning-note {
   margin: 0.8rem 0 0;
   color: var(--muted);
@@ -910,6 +965,10 @@ onMounted(loadRows)
   .planning-main-fields,
   .planning-filter-grid,
   .planning-import-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-import-file {
     grid-template-columns: 1fr;
   }
 
