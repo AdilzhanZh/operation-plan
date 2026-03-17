@@ -82,10 +82,82 @@ func RunSQLMigrations(db *sql.DB) error {
 			id BIGSERIAL PRIMARY KEY,
 			target_indicator TEXT NOT NULL,
 			unit VARCHAR(32) NOT NULL,
+			direction TEXT NOT NULL DEFAULT 'Академическое превосходство и интернационализация образования',
 			year_values JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+		`ALTER TABLE planning_period_indicators
+		  ADD COLUMN IF NOT EXISTS direction TEXT;`,
+		`WITH numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = ''
+			   OR direction NOT IN (
+			       'Академическое превосходство и интернационализация образования',
+			       'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+			       'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+			   )
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id;`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET DEFAULT 'Академическое превосходство и интернационализация образования';`,
+		`UPDATE planning_period_indicators
+		 SET direction = 'Академическое превосходство и интернационализация образования'
+		 WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = '';`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET NOT NULL;`,
+		`DO $$
+		BEGIN
+		  IF NOT EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'planning_period_indicators_direction_check'
+		  ) THEN
+		    ALTER TABLE planning_period_indicators
+		      ADD CONSTRAINT planning_period_indicators_direction_check
+		      CHECK (direction IN (
+		        'Академическое превосходство и интернационализация образования',
+		        'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+		        'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		      ));
+		  END IF;
+		END $$;`,
+		`WITH stats AS (
+			SELECT COUNT(*) AS total_rows,
+			       COUNT(DISTINCT direction) AS distinct_directions,
+			       BOOL_AND(direction = 'Академическое превосходство и интернационализация образования') AS only_default_direction
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') <> ''
+		),
+		numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id
+		  AND EXISTS (
+		    SELECT 1
+		    FROM stats
+		    WHERE stats.total_rows > 1
+		      AND stats.distinct_directions = 1
+		      AND stats.only_default_direction
+		  );`,
 		`CREATE TABLE IF NOT EXISTS plan_indicator_details (
 			id BIGSERIAL PRIMARY KEY,
 			planning_period_indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
@@ -310,6 +382,7 @@ func RunSQLMigrations(db *sql.DB) error {
 			id BIGSERIAL PRIMARY KEY,
 			plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
 			submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			legacy_source_report_id BIGINT NULL,
 			report_text TEXT NOT NULL DEFAULT '',
 			status VARCHAR(32) NOT NULL DEFAULT 'pending',
 			review_note TEXT NOT NULL DEFAULT '',
@@ -319,11 +392,48 @@ func RunSQLMigrations(db *sql.DB) error {
 			reviewed_at TIMESTAMPTZ NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			UNIQUE (plan_item_id, submitted_by),
 			CHECK (status IN ('pending', 'completed', 'rejected'))
 		);`,
+		`ALTER TABLE report_submissions
+		  ADD COLUMN IF NOT EXISTS legacy_source_report_id BIGINT NULL;`,
+		`WITH mapped AS (
+			SELECT rs.id AS submission_id,
+			       src.legacy_id
+			FROM report_submissions rs
+			JOIN plan_items pi
+			  ON pi.id = rs.plan_item_id
+			JOIN LATERAL (
+			  SELECT pir.id AS legacy_id
+			  FROM plan_indicator_reports pir
+			  WHERE pir.planning_period_indicator_id = pi.indicator_id
+			    AND pir.year = pi.year
+			    AND pir.submitted_by = rs.submitted_by
+			  ORDER BY COALESCE(pir.submitted_at, pir.updated_at, pir.created_at, NOW()) DESC, pir.id DESC
+			  LIMIT 1
+			) src ON true
+			WHERE rs.legacy_source_report_id IS NULL
+		)
+		UPDATE report_submissions rs
+		SET legacy_source_report_id = mapped.legacy_id
+		FROM mapped
+		WHERE rs.id = mapped.submission_id;`,
+		`DO $$
+		BEGIN
+		  IF EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'report_submissions_plan_item_id_submitted_by_key'
+		  ) THEN
+		    ALTER TABLE report_submissions
+		      DROP CONSTRAINT report_submissions_plan_item_id_submitted_by_key;
+		  END IF;
+		END $$;`,
+		`DROP INDEX IF EXISTS report_submissions_legacy_source_uidx;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS report_submissions_legacy_source_uidx
+		 ON report_submissions (legacy_source_report_id);`,
 		`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
 		`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
+		`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_submitted_idx ON report_submissions (plan_item_id, submitted_by);`,
 		`UPDATE report_submissions
 		SET status = LOWER(TRIM(COALESCE(status, '')));`,
 		`UPDATE report_submissions
@@ -361,6 +471,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		`INSERT INTO report_submissions (
 			plan_item_id,
 			submitted_by,
+			legacy_source_report_id,
 			report_text,
 			status,
 			review_note,
@@ -373,6 +484,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		)
 		SELECT pi.id,
 		       pir.submitted_by,
+		       pir.id,
 		       COALESCE(pir.report_text, ''),
 		       CASE
 		           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) IN ('completed', 'approved')
@@ -392,16 +504,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		JOIN plan_items pi
 		  ON pi.indicator_id = pir.planning_period_indicator_id
 		 AND pi.year = pir.year
-		ON CONFLICT (plan_item_id, submitted_by)
-		DO UPDATE SET
-			report_text = EXCLUDED.report_text,
-			status = EXCLUDED.status,
-			review_note = EXCLUDED.review_note,
-			approval_formula = EXCLUDED.approval_formula,
-			reviewed_by = EXCLUDED.reviewed_by,
-			submitted_at = EXCLUDED.submitted_at,
-			reviewed_at = EXCLUDED.reviewed_at,
-			updated_at = NOW();`,
+		ON CONFLICT (legacy_source_report_id) DO NOTHING;`,
 		`CREATE TABLE IF NOT EXISTS report_files (
 			id BIGSERIAL PRIMARY KEY,
 			submission_id BIGINT NOT NULL REFERENCES report_submissions(id) ON DELETE CASCADE,
@@ -425,12 +528,8 @@ func RunSQLMigrations(db *sql.DB) error {
 		FROM plan_indicator_report_files prf
 		JOIN plan_indicator_reports pir
 		  ON pir.id = prf.report_id
-		JOIN plan_items pi
-		  ON pi.indicator_id = pir.planning_period_indicator_id
-		 AND pi.year = pir.year
 		JOIN report_submissions rs
-		  ON rs.plan_item_id = pi.id
-		 AND rs.submitted_by = pir.submitted_by
+		  ON rs.legacy_source_report_id = pir.id
 		WHERE COALESCE(prf.storage_path, '') <> ''
 		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
 		`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
@@ -445,12 +544,8 @@ func RunSQLMigrations(db *sql.DB) error {
 		       '',
 		       NOW()
 		FROM plan_indicator_reports pir
-		JOIN plan_items pi
-		  ON pi.indicator_id = pir.planning_period_indicator_id
-		 AND pi.year = pir.year
 		JOIN report_submissions rs
-		  ON rs.plan_item_id = pi.id
-		 AND rs.submitted_by = pir.submitted_by
+		  ON rs.legacy_source_report_id = pir.id
 		WHERE COALESCE(TRIM(pir.file_path), '') <> ''
 		ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
 		`CREATE TABLE IF NOT EXISTS report_status_history (

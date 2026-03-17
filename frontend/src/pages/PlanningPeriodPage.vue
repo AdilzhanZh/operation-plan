@@ -13,6 +13,25 @@ import {
 const authStore = useAuthStore()
 const { tr } = useLocale()
 
+const directionOptions = [
+  {
+    value: 'Академическое превосходство и интернационализация образования',
+    ru: 'Академическое превосходство и интернационализация образования',
+    kz: 'Академиялық озықтық және білім беруді интернационалдандыру'
+  },
+  {
+    value: 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+    ru: 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+    kz: 'Ғылым мен халықаралық ынтымақтастықты дамыту'
+  },
+  {
+    value: 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ',
+    ru: 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ',
+    kz: 'Инфрақұрылымды цифрландыру және жаңғырту'
+  }
+]
+const allowedDirectionValues = directionOptions.map((item) => item.value)
+
 let localYearRowId = 0
 
 function newYearRow(year = '', value = '') {
@@ -142,12 +161,14 @@ const readModalText = ref('')
 const createForm = reactive({
   targetIndicator: '',
   unit: '',
+  direction: '',
   years: [newYearRow()]
 })
 
 const editForm = reactive({
   targetIndicator: '',
   unit: '',
+  direction: '',
   years: [newYearRow()]
 })
 
@@ -240,6 +261,20 @@ function textPreview(value) {
   return normalized || '—'
 }
 
+function directionLabel(value) {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) {
+    return '—'
+  }
+
+  const option = directionOptions.find((item) => item.value === normalized)
+  if (!option) {
+    return normalized
+  }
+
+  return tr(option.ru, option.kz)
+}
+
 function openReadModal(title, value) {
   readModalTitle.value = title
   readModalText.value = textPreview(value)
@@ -260,6 +295,7 @@ function clearPeriodFilter() {
 function resetCreateForm() {
   createForm.targetIndicator = ''
   createForm.unit = ''
+  createForm.direction = ''
   createForm.years.splice(0, createForm.years.length, newYearRow())
 }
 
@@ -272,6 +308,7 @@ function startEdit(row) {
   editingId.value = row.id
   editForm.targetIndicator = row.target_indicator
   editForm.unit = row.unit
+  editForm.direction = row.direction || ''
 
   const years = normalizeYearsForEditor(row.year_values)
   editForm.years.splice(0, editForm.years.length, ...years)
@@ -398,9 +435,14 @@ async function createRow() {
 
   const targetIndicator = createForm.targetIndicator.trim()
   const unit = createForm.unit.trim()
+  const direction = createForm.direction.trim()
 
-  if (!targetIndicator || !unit) {
-    errorMessage.value = tr('Заполните целевой индикатор и ед. изм.', 'Целевой индикатор және ед. изм. толтырыңыз')
+  if (!targetIndicator || !unit || !direction) {
+    errorMessage.value = tr('Заполните целевой индикатор, ед. изм. и направление.', 'Целевой индикатор, ед. изм. және бағытты толтырыңыз')
+    return
+  }
+  if (!allowedDirectionValues.includes(direction)) {
+    errorMessage.value = tr('Выберите корректное направление.', 'Дұрыс бағытты таңдаңыз.')
     return
   }
 
@@ -416,6 +458,7 @@ async function createRow() {
     await createPlanningPeriodIndicator({
       target_indicator: targetIndicator,
       unit,
+      direction,
       year_values: payload
     })
 
@@ -445,9 +488,14 @@ async function saveEdit() {
 
   const targetIndicator = editForm.targetIndicator.trim()
   const unit = editForm.unit.trim()
+  const direction = editForm.direction.trim()
 
-  if (!targetIndicator || !unit) {
-    errorMessage.value = tr('Заполните целевой индикатор и ед. изм.', 'Целевой индикатор және ед. изм. толтырыңыз')
+  if (!targetIndicator || !unit || !direction) {
+    errorMessage.value = tr('Заполните целевой индикатор, ед. изм. и направление.', 'Целевой индикатор, ед. изм. және бағытты толтырыңыз')
+    return
+  }
+  if (!allowedDirectionValues.includes(direction)) {
+    errorMessage.value = tr('Выберите корректное направление.', 'Дұрыс бағытты таңдаңыз.')
     return
   }
 
@@ -463,6 +511,7 @@ async function saveEdit() {
     await updatePlanningPeriodIndicator(editingId.value, {
       target_indicator: targetIndicator,
       unit,
+      direction,
       year_values: payload
     })
 
@@ -583,6 +632,16 @@ onMounted(loadRows)
             placeholder="%, место, число, балл..."
           />
         </label>
+
+        <label>
+          {{ tr('Направление', 'Бағыт') }}
+          <select v-model="createForm.direction">
+            <option value="" disabled>{{ tr('Выберите направление', 'Бағытты таңдаңыз') }}</option>
+            <option v-for="option in directionOptions" :key="`create-direction-${option.value}`" :value="option.value">
+              {{ tr(option.ru, option.kz) }}
+            </option>
+          </select>
+        </label>
       </div>
 
       <div class="planning-year-editor">
@@ -645,6 +704,7 @@ onMounted(loadRows)
               <tr>
                 <th class="col-sticky-indicator">{{ tr('Целевой индикатор', 'Мақсатты индикатор') }}</th>
                 <th class="col-sticky-unit">{{ tr('ед. изм.', 'өлш. бірл.') }}</th>
+                <th class="col-direction">{{ tr('Направление', 'Бағыт') }}</th>
                 <th v-for="year in tableYears" :key="`head-${year}`">{{ year }}</th>
                 <th v-if="isAdmin">{{ tr('Действие', 'Әрекет') }}</th>
               </tr>
@@ -666,6 +726,19 @@ onMounted(loadRows)
                   </div>
                 </td>
                 <td class="col-sticky-unit">{{ row.unit }}</td>
+                <td class="col-direction">
+                  <div
+                    class="table-text-preview text-pretty"
+                    :class="{ 'is-empty': directionLabel(row.direction) === '—' }"
+                    role="button"
+                    tabindex="0"
+                    @click="openReadModal(tr('Направление', 'Бағыт'), directionLabel(row.direction))"
+                    @keyup.enter="openReadModal(tr('Направление', 'Бағыт'), directionLabel(row.direction))"
+                    @keyup.space.prevent="openReadModal(tr('Направление', 'Бағыт'), directionLabel(row.direction))"
+                  >
+                    <span class="table-text-preview-content">{{ directionLabel(row.direction) }}</span>
+                  </div>
+                </td>
                 <td v-for="year in tableYears" :key="`${row.id}-${year}`">
                   {{ row.year_values?.[year] ?? '—' }}
                 </td>
@@ -717,6 +790,16 @@ onMounted(loadRows)
           <label>
             {{ tr('ед. изм.', 'өлш. бірл.') }}
             <input v-model="editForm.unit" type="text" />
+          </label>
+
+          <label>
+            {{ tr('Направление', 'Бағыт') }}
+            <select v-model="editForm.direction">
+              <option value="" disabled>{{ tr('Выберите направление', 'Бағытты таңдаңыз') }}</option>
+              <option v-for="option in directionOptions" :key="`edit-direction-${option.value}`" :value="option.value">
+                {{ tr(option.ru, option.kz) }}
+              </option>
+            </select>
           </label>
         </div>
 
@@ -843,7 +926,7 @@ onMounted(loadRows)
 .planning-main-fields {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1.8fr) minmax(220px, 0.7fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.6fr) minmax(260px, 0.9fr);
 }
 
 .planning-year-editor {
@@ -872,7 +955,7 @@ onMounted(loadRows)
 }
 
 .planning-table {
-  min-width: 980px;
+  min-width: 1280px;
 }
 
 .planning-table-wrap {
@@ -898,6 +981,11 @@ onMounted(loadRows)
   min-width: 110px;
   width: 110px;
   z-index: 6;
+}
+
+.planning-table .col-direction {
+  min-width: 320px;
+  width: 320px;
 }
 
 .planning-table thead .col-sticky-indicator,

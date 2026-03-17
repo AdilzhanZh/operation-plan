@@ -3,7 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { useLocale } from '../composables/useLocale'
 import {
+  downloadPlanReportFile,
   fetchPlanIndicators,
+  fetchPlanReports,
   savePlanIndicator,
   submitPlanIndicatorReport
 } from '../services/plan.service'
@@ -13,6 +15,24 @@ import { useAuthStore } from '../store/auth'
 const authStore = useAuthStore()
 const { tr } = useLocale()
 
+const directionOptions = [
+  {
+    value: 'Академическое превосходство и интернационализация образования',
+    ru: 'Академическое превосходство и интернационализация образования',
+    kz: 'Академиялық озықтық және білім беруді интернационалдандыру'
+  },
+  {
+    value: 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+    ru: 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+    kz: 'Ғылым мен халықаралық ынтымақтастықты дамыту'
+  },
+  {
+    value: 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ',
+    ru: 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ',
+    kz: 'Инфрақұрылымды цифрландыру және жаңғырту'
+  }
+]
+
 const selectedYear = ref(String(new Date().getFullYear()))
 const rows = ref([])
 const prorectors = ref([])
@@ -21,11 +41,18 @@ const savingIndicatorId = ref(null)
 const errorMessage = ref('')
 const successMessage = ref('')
 const selectedResponsibleFilter = ref('')
+const selectedDirectionFilter = ref('')
+const activeViewTab = ref('plans')
+const tabTransitionName = ref('plans-slide-left')
 const reportModalOpen = ref(false)
 const reportIndicatorId = ref(null)
 const reportText = ref('')
 const reportFiles = ref([])
 const reportSending = ref(false)
+const reportsHistoryModalOpen = ref(false)
+const reportsHistoryIndicator = ref(null)
+const reportsHistoryItems = ref([])
+const reportsHistoryLoading = ref(false)
 const readModalOpen = ref(false)
 const readModalTitle = ref('')
 const readModalText = ref('')
@@ -42,19 +69,39 @@ let countdownIntervalID = null
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 const isProrector = computed(() => authStore.user?.role === 'prorector')
+const canUseReportsTab = computed(() => isAdmin.value || isProrector.value)
 const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
+const activePanelSubtitle = computed(() => {
+  if (activeViewTab.value === 'reports') {
+    return tr(
+      'Выберите индикатор и просмотрите все отправленные отчеты. Для проректора доступна повторная отправка.',
+      'Индикаторды таңдап, жіберілген есептердің толық тарихын көріңіз. Проректор үшін қайта жіберу қолжетімді.'
+    )
+  }
+  return tr(
+    'Редактирование доступно администратору, отправка отчета - назначенному проректору.',
+    'Өңдеу әкімшіге қолжетімді, есеп жіберу бекітілген проректорға арналған.'
+  )
+})
 const visibleRows = computed(() => {
+  let filtered = rows.value
+
+  const direction = String(selectedDirectionFilter.value ?? '').trim()
+  if (direction) {
+    filtered = filtered.filter((row) => String(row.direction ?? '').trim() === direction)
+  }
+
   if (!isAdmin.value) {
-    return rows.value
+    return filtered
   }
 
   const responsibleID = Number(selectedResponsibleFilter.value)
   if (!Number.isInteger(responsibleID) || responsibleID <= 0) {
-    return rows.value
+    return filtered
   }
 
-  return rows.value.filter((row) => (row.responsible_user_ids ?? []).includes(responsibleID))
+  return filtered.filter((row) => (row.responsible_user_ids ?? []).includes(responsibleID))
 })
 const hasRows = computed(() => rows.value.length > 0)
 const hasVisibleRows = computed(() => visibleRows.value.length > 0)
@@ -134,9 +181,12 @@ async function loadRows() {
     return
   }
 
-  const response = await fetchPlanIndicators(selectedYear.value)
+  const response = await fetchPlanIndicators(selectedYear.value, {
+    include_submitted: isProrector.value
+  })
   rows.value = (response.items ?? []).map((item) => ({
     ...item,
+    direction: item.direction ?? '',
     execution_start_date: item.execution_start_date ?? '',
     execution_end_date: item.execution_end_date ?? '',
     schedule_status: item.schedule_status ?? 'not_filled',
@@ -151,6 +201,19 @@ async function loadRows() {
       row.responsible = formatResponsibleNamesByIDs(row.responsible_user_ids)
     }
   }
+}
+
+function setActiveViewTab(tab) {
+  if (tab === 'reports' && !canUseReportsTab.value) {
+    return
+  }
+  if (activeViewTab.value === tab) {
+    return
+  }
+  const currentIndex = activeViewTab.value === 'reports' ? 1 : 0
+  const nextIndex = tab === 'reports' ? 1 : 0
+  tabTransitionName.value = nextIndex > currentIndex ? 'plans-slide-left' : 'plans-slide-right'
+  activeViewTab.value = tab
 }
 
 function formatISODateToDMY(value) {
@@ -400,6 +463,107 @@ function closeReportModal() {
   reportFiles.value = []
 }
 
+function reportStatusLabel(status) {
+  const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'completed') {
+    return tr('Завершено', 'Аяқталған')
+  }
+  if (normalized === 'rejected') {
+    return tr('Отклонено', 'Қабылданбаған')
+  }
+  return tr('На проверке', 'Тексерісте')
+}
+
+function reportStatusClass(status) {
+  const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'completed') {
+    return 'report-status-completed'
+  }
+  if (normalized === 'rejected') {
+    return 'report-status-rejected'
+  }
+  return 'report-status-pending'
+}
+
+function formatDateTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '—'
+  }
+  return date.toLocaleString(tr('ru-RU', 'kk-KZ'))
+}
+
+async function downloadReportFile(file) {
+  if (!file?.id) {
+    return
+  }
+
+  clearMessages()
+  try {
+    const response = await downloadPlanReportFile(file.id)
+    const blob = new Blob([response.data], {
+      type: response.headers?.['content-type'] || 'application/octet-stream'
+    })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.file_name || `report-file-${file.id}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? tr('Не удалось скачать файл', 'Файлды жүктеу мүмкін болмады')
+  }
+}
+
+async function openReportsHistoryModal(row) {
+  if (!row) {
+    return
+  }
+
+  clearMessages()
+  reportsHistoryIndicator.value = row
+  reportsHistoryItems.value = []
+  reportsHistoryModalOpen.value = true
+  reportsHistoryLoading.value = true
+
+  try {
+    const response = await fetchPlanReports(selectedYear.value, {
+      indicator_id: row.indicator_id
+    })
+    reportsHistoryItems.value = response.items ?? []
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? tr('Не удалось загрузить историю отчетов', 'Есеп тарихын жүктеу мүмкін болмады')
+  } finally {
+    reportsHistoryLoading.value = false
+  }
+}
+
+function closeReportsHistoryModal() {
+  reportsHistoryModalOpen.value = false
+  reportsHistoryIndicator.value = null
+  reportsHistoryItems.value = []
+  reportsHistoryLoading.value = false
+}
+
+function openNewReportFromHistory() {
+  if (!reportsHistoryIndicator.value) {
+    return
+  }
+  const row = rows.value.find((item) => item.indicator_id === reportsHistoryIndicator.value.indicator_id)
+  closeReportsHistoryModal()
+  if (row) {
+    openReportModal(row)
+  }
+}
+
 function handleReportFileChange(event) {
   const files = event?.target?.files ?? []
   reportFiles.value = Array.from(files).filter(Boolean)
@@ -445,6 +609,9 @@ async function submitIndicatorReport() {
 
 onMounted(() => {
   startCountdownTicker()
+  if (!canUseReportsTab.value) {
+    activeViewTab.value = 'plans'
+  }
   initialize()
 })
 
@@ -456,7 +623,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="plans-page">
     <PageHeader
-      :title="tr('Планы', 'Жоспарлар')"
+      :title="tr('Планы и отчеты', 'Жоспарлар мен есептер')"
       :subtitle="tr('Рабочая матрица текущего года: мероприятия, сроки исполнения и ответственные по каждому индикатору', 'Ағымдағы жыл матрицасы: әр индикатор үшін іс-шаралар, мерзімдер және жауаптылар')"
       :eyebrow="tr('Сетка исполнения', 'Орындау кестесі')"
     />
@@ -478,6 +645,16 @@ onBeforeUnmount(() => {
         </select>
       </label>
 
+      <label class="plans-filter">
+        <span>{{ tr('Направление', 'Бағыт') }}</span>
+        <select v-model="selectedDirectionFilter">
+          <option value="">{{ tr('Все направления', 'Барлық бағыттар') }}</option>
+          <option v-for="option in directionOptions" :key="`direction-filter-${option.value}`" :value="option.value">
+            {{ tr(option.ru, option.kz) }}
+          </option>
+        </select>
+      </label>
+
       <div class="plans-visible-card">
         <span class="kicker">{{ tr('Отображено', 'Көрсетілген') }}</span>
         <strong>{{ visibleRows.length }}</strong>
@@ -491,107 +668,276 @@ onBeforeUnmount(() => {
       <div class="panel-header">
         <div>
           <h3 class="panel-title">{{ tr('Операционный план', 'Операциялық жоспар') }}</h3>
-          <p class="panel-subtitle">{{ tr('Редактирование доступно администратору, отправка отчета - назначенному проректору.', 'Өңдеу әкімшіге қолжетімді, есеп жіберу бекітілген проректорға арналған.') }}</p>
+          <p class="panel-subtitle">{{ activePanelSubtitle }}</p>
         </div>
         <span class="kicker">{{ visibleRows.length }} {{ tr('индикаторов', 'индикатор') }}</span>
       </div>
 
-      <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
-      <div v-else-if="!hasRows" class="empty-state">
-        {{ tr(`По году ${selectedYear} нет запланированных индикаторов.`, `${selectedYear} жылына жоспарланған индикатор табылмады.`) }}
+      <div class="plans-card-tabs" :class="{ 'is-single': !canUseReportsTab }">
+        <span
+          v-if="canUseReportsTab"
+          class="plans-card-tab-slider"
+          :class="{ 'is-reports': activeViewTab === 'reports' }"
+        />
+        <button
+          class="btn btn-ghost plans-card-tab-btn"
+          :class="{ 'is-active': activeViewTab === 'plans' }"
+          type="button"
+          @click="setActiveViewTab('plans')"
+        >
+          {{ tr('Планы', 'Жоспарлар') }}
+        </button>
+        <button
+          v-if="canUseReportsTab"
+          class="btn btn-ghost plans-card-tab-btn"
+          :class="{ 'is-active': activeViewTab === 'reports' }"
+          type="button"
+          @click="setActiveViewTab('reports')"
+        >
+          {{ tr('Отчеты', 'Есептер') }}
+        </button>
       </div>
-      <div v-else-if="!hasVisibleRows" class="empty-state">
-        {{ tr('По выбранному ответственному индикаторы не найдены.', 'Таңдалған жауаптыға сәйкес индикатор табылмады.') }}
-      </div>
 
-      <div v-else class="table-wrapper">
-        <table class="plan-table">
-          <thead>
-            <tr>
-              <th class="col-number">№</th>
-              <th>{{ tr('Индикатор Программы развития', 'Бағдарлама дамуының индикаторы') }}</th>
-              <th>{{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}</th>
-              <th class="col-deadline">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
-              <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
-              <td class="number-cell" data-label="№">{{ index + 1 }}</td>
+      <Transition :name="tabTransitionName" mode="out-in">
+        <div v-if="activeViewTab === 'plans'" key="plans" class="plans-tab-pane">
+          <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
+          <div v-else-if="!hasRows" class="empty-state">
+            {{ tr(`По году ${selectedYear} нет запланированных индикаторов.`, `${selectedYear} жылына жоспарланған индикатор табылмады.`) }}
+          </div>
+          <div v-else-if="!hasVisibleRows" class="empty-state">
+            {{ tr('По выбранным фильтрам индикаторы не найдены.', 'Таңдалған сүзгілер бойынша индикатор табылмады.') }}
+          </div>
 
-              <td :data-label="tr('Индикатор программы развития', 'Бағдарлама индикаторы')">
-                <div
-                  class="table-text-preview text-pretty"
-                  :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
-                  role="button"
-                  tabindex="0"
-                  @click="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
-                  @keyup.enter="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
-                  @keyup.space.prevent="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
-                >
-                  <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
-                </div>
-                <span class="planned-value-chip">
-                  {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                </span>
-              </td>
+          <div v-else class="table-wrapper">
+            <table class="plan-table">
+              <thead>
+                <tr>
+                  <th class="col-number">№</th>
+                  <th>{{ tr('Индикатор Программы развития', 'Бағдарлама дамуының индикаторы') }}</th>
+                  <th>{{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}</th>
+                  <th class="col-deadline">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+                  <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
+                  <td class="number-cell" data-label="№">{{ index + 1 }}</td>
 
-              <td :data-label="tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары')">
-                <div
-                  class="table-text-preview text-pretty"
-                  :class="{ 'is-empty': textPreview(row.activities) === '—' }"
-                  role="button"
-                  tabindex="0"
-                  @click="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                  @keyup.enter="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                  @keyup.space.prevent="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                >
-                  <span class="table-text-preview-content">{{ textPreview(row.activities) }}</span>
-                </div>
-              </td>
+                  <td :data-label="tr('Индикатор программы развития', 'Бағдарлама индикаторы')">
+                    <div
+                      class="table-text-preview text-pretty"
+                      :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                      role="button"
+                      tabindex="0"
+                      @click="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
+                      @keyup.enter="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
+                      @keyup.space.prevent="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), row.development_indicator)"
+                    >
+                      <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                    </div>
+                    <span class="planned-value-chip">
+                      {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                    </span>
+                  </td>
 
-              <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
-                <div class="plans-schedule-card">
-                  <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
-                  <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
-                    {{ scheduleStatusLabel(row.schedule_status) }}
-                  </div>
-                  <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
-                    {{ tr('Осталось времени:', 'Қалған уақыт:') }} {{ formatRemainingTime(row) }}
-                  </div>
-                </div>
-              </td>
+                  <td :data-label="tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары')">
+                    <div
+                      class="table-text-preview text-pretty"
+                      :class="{ 'is-empty': textPreview(row.activities) === '—' }"
+                      role="button"
+                      tabindex="0"
+                      @click="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
+                      @keyup.enter="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
+                      @keyup.space.prevent="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
+                    >
+                      <span class="table-text-preview-content">{{ textPreview(row.activities) }}</span>
+                    </div>
+                  </td>
 
-              <td :data-label="tr('Ответственные', 'Жауаптылар')">
-                <template v-if="isAdmin">
-                  <p class="table-inline-value text-pretty">
-                    {{ row.responsible || tr('Ответственные не выбраны', 'Жауаптылар таңдалмаған') }}
-                  </p>
-                  <button
-                    class="btn btn-primary plans-edit-row-btn"
-                    type="button"
-                    @click="openRowEditModal(row)"
-                  >
-                    {{ tr('Изменить', 'Өзгерту') }}
-                  </button>
-                </template>
-                <template v-else>
-                  <p class="table-inline-value text-pretty">{{ row.responsible || '—' }}</p>
-                  <button
-                    v-if="isProrector"
-                    class="btn btn-primary plans-report-btn"
-                    type="button"
-                    @click="openReportModal(row)"
-                  >
-                    {{ tr('Отправить отчет', 'Есеп жіберу') }}
-                  </button>
-                </template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                  <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
+                    <div class="plans-schedule-card">
+                      <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
+                      <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
+                        {{ scheduleStatusLabel(row.schedule_status) }}
+                      </div>
+                      <div v-if="row.execution_start_date && row.execution_end_date" class="countdown-text">
+                        {{ tr('Осталось времени:', 'Қалған уақыт:') }} {{ formatRemainingTime(row) }}
+                      </div>
+                    </div>
+                  </td>
+
+                  <td :data-label="tr('Ответственные', 'Жауаптылар')">
+                    <template v-if="isAdmin">
+                      <p class="table-inline-value text-pretty">
+                        {{ row.responsible || tr('Ответственные не выбраны', 'Жауаптылар таңдалмаған') }}
+                      </p>
+                      <button
+                        class="btn btn-primary plans-edit-row-btn"
+                        type="button"
+                        @click="openRowEditModal(row)"
+                      >
+                        {{ tr('Изменить', 'Өзгерту') }}
+                      </button>
+                    </template>
+                    <template v-else>
+                      <p class="table-inline-value text-pretty">{{ row.responsible || '—' }}</p>
+                      <button
+                        v-if="isProrector"
+                        class="btn btn-primary plans-report-btn"
+                        type="button"
+                        @click="openReportModal(row)"
+                      >
+                        {{ tr('Отправить отчет', 'Есеп жіберу') }}
+                      </button>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else key="reports" class="plans-tab-pane">
+          <div v-if="loading" class="empty-state">{{ tr('Загрузка...', 'Жүктелуде...') }}</div>
+          <div v-else-if="!hasRows" class="empty-state">
+            {{ tr(`По году ${selectedYear} нет индикаторов.`, `${selectedYear} жылына индикаторлар табылмады.`) }}
+          </div>
+          <div v-else class="table-wrapper">
+            <table class="plan-table plans-reports-table">
+              <thead>
+                <tr>
+                  <th class="col-number">№</th>
+                  <th>{{ tr('Индикатор', 'Индикатор') }}</th>
+                  <th class="col-action">{{ tr('Действие', 'Әрекет') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in rows" :key="`report-list-${row.indicator_id}`">
+                  <td class="number-cell" data-label="№">{{ index + 1 }}</td>
+                  <td :data-label="tr('Индикатор', 'Индикатор')">
+                    <div
+                      class="table-text-preview text-pretty"
+                      :class="{ 'is-empty': textPreview(row.development_indicator) === '—' }"
+                      role="button"
+                      tabindex="0"
+                      @click="openReadModal(tr('Индикатор', 'Индикатор'), row.development_indicator)"
+                      @keyup.enter="openReadModal(tr('Индикатор', 'Индикатор'), row.development_indicator)"
+                      @keyup.space.prevent="openReadModal(tr('Индикатор', 'Индикатор'), row.development_indicator)"
+                    >
+                      <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
+                    </div>
+                    <span class="planned-value-chip">
+                      {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                    </span>
+                  </td>
+                  <td :data-label="tr('Действие', 'Әрекет')">
+                    <button
+                      class="btn btn-primary plans-history-btn"
+                      type="button"
+                      @click="openReportsHistoryModal(row)"
+                    >
+                      {{ tr('Открыть отчеты', 'Есептерді ашу') }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Transition>
     </section>
+
+    <div v-if="reportsHistoryModalOpen" class="modal-backdrop" @click.self="closeReportsHistoryModal">
+      <div class="modal-card plans-modal plans-history-modal">
+        <h3 class="modal-title">{{ tr('История отчетов', 'Есептер тарихы') }}</h3>
+        <p class="modal-subtitle text-pretty">
+          {{ reportsHistoryIndicator?.development_indicator || tr('Индикатор', 'Индикатор') }}
+        </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
+
+        <div class="plans-history-toolbar">
+          <span class="kicker">{{ tr('Отчетов', 'Есептер') }}: {{ reportsHistoryItems.length }}</span>
+          <button
+            v-if="isProrector"
+            class="btn btn-primary"
+            type="button"
+            @click="openNewReportFromHistory"
+          >
+            {{ tr('Отправить новый отчет', 'Жаңа есеп жіберу') }}
+          </button>
+        </div>
+
+        <div v-if="reportsHistoryLoading" class="empty-state plans-history-empty">
+          {{ tr('Загрузка...', 'Жүктелуде...') }}
+        </div>
+        <div v-else-if="reportsHistoryItems.length === 0" class="empty-state plans-history-empty">
+          {{ tr('По выбранному индикатору отчетов пока нет.', 'Таңдалған индикатор бойынша әзірге есептер жоқ.') }}
+        </div>
+        <div v-else class="plans-history-list">
+          <article
+            v-for="item in reportsHistoryItems"
+            :key="`history-item-${item.id}`"
+            class="plans-history-item"
+          >
+            <div class="plans-history-item-head">
+              <span class="planned-value-chip">#{{ item.id }}</span>
+              <span class="schedule-status" :class="reportStatusClass(item.status)">
+                {{ reportStatusLabel(item.status) }}
+              </span>
+            </div>
+
+            <div
+              class="table-text-preview text-pretty plans-history-text"
+              :class="{ 'is-empty': textPreview(item.report_text) === '—' }"
+              role="button"
+              tabindex="0"
+              @click="openReadModal(tr('Текст отчета', 'Есеп мәтіні'), item.report_text)"
+              @keyup.enter="openReadModal(tr('Текст отчета', 'Есеп мәтіні'), item.report_text)"
+              @keyup.space.prevent="openReadModal(tr('Текст отчета', 'Есеп мәтіні'), item.report_text)"
+            >
+              <span class="table-text-preview-content">{{ textPreview(item.report_text) }}</span>
+            </div>
+
+            <div class="files-list plans-history-files">
+              <button
+                v-for="file in item.files"
+                :key="`history-file-${file.id}`"
+                class="btn btn-ghost report-file-chip"
+                type="button"
+                @click="downloadReportFile(file)"
+              >
+                {{ file.file_name }}
+              </button>
+              <span v-if="!item.files || item.files.length === 0" class="muted">
+                {{ tr('Файлы не прикреплены', 'Файлдар тіркелмеген') }}
+              </span>
+            </div>
+
+            <p class="meta">
+              {{ tr('Отправил:', 'Жіберген:') }} {{ item.submitted_by_name || item.submitted_by }} •
+              {{ formatDateTime(item.submitted_at) }}
+            </p>
+            <p v-if="item.reviewed_by_name" class="meta">
+              {{ tr('Проверил:', 'Тексерген:') }} {{ item.reviewed_by_name }} •
+              {{ formatDateTime(item.reviewed_at) }}
+            </p>
+            <p v-if="item.review_note" class="cell-note danger-text">
+              {{ tr('Причина отклонения:', 'Қабылданбау себебі:') }} {{ item.review_note }}
+            </p>
+            <p v-if="item.approval_formula" class="cell-note success-text">
+              {{ tr('Формула/итог:', 'Формула/қорытынды:') }} {{ item.approval_formula }}
+            </p>
+          </article>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" @click="closeReportsHistoryModal">
+            {{ tr('Закрыть', 'Жабу') }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="readModalOpen" class="modal-backdrop" @click.self="closeReadModal">
       <div class="modal-card plans-modal plans-read-modal">
@@ -758,6 +1104,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .plans-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  align-items: end;
   justify-content: space-between;
 }
 
@@ -765,6 +1115,10 @@ onBeforeUnmount(() => {
 .plans-visible-card {
   display: grid;
   gap: 0.35rem;
+}
+
+.plans-year-card {
+  flex: 1 1 18rem;
 }
 
 .plans-year-card strong,
@@ -781,15 +1135,114 @@ onBeforeUnmount(() => {
 }
 
 .plans-filter {
-  min-width: 18rem;
+  min-width: 16rem;
+  max-width: 24rem;
+  flex: 1 1 16rem;
+}
+
+.plans-visible-card {
+  margin-left: auto;
 }
 
 .plans-table-card {
   padding: 1.2rem;
 }
 
+.plans-card-tabs {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.9rem 0 1rem;
+  padding: 0.25rem;
+  max-width: 22rem;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+
+.plans-card-tabs.is-single {
+  grid-template-columns: 1fr;
+  max-width: 12rem;
+}
+
+.plans-card-tab-slider {
+  position: absolute;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  left: 0.25rem;
+  width: calc(50% - 0.175rem);
+  border-radius: 11px;
+  background: linear-gradient(125deg, rgba(17, 120, 111, 0.19), rgba(17, 120, 111, 0.09));
+  box-shadow: 0 8px 20px rgba(15, 31, 41, 0.12);
+  transition: transform 0.32s cubic-bezier(0.2, 0.75, 0.2, 1);
+  z-index: 0;
+}
+
+.plans-card-tab-slider.is-reports {
+  transform: translateX(calc(100% + 0.35rem));
+}
+
+.plans-card-tab-btn {
+  min-width: 0;
+  width: 100%;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  border-color: transparent;
+  background: transparent;
+  transition: color 0.2s ease;
+}
+
+.plans-card-tab-btn.is-active {
+  color: #0f5e57;
+  border-color: transparent;
+  background: transparent;
+}
+
+.plans-card-tab-btn:not(.is-active) {
+  color: var(--muted-strong);
+}
+
+.plans-tab-pane {
+  min-height: 6.4rem;
+}
+
+.plans-slide-left-enter-active,
+.plans-slide-left-leave-active,
+.plans-slide-right-enter-active,
+.plans-slide-right-leave-active {
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+
+.plans-slide-left-enter-from {
+  opacity: 0;
+  transform: translateX(26px);
+}
+
+.plans-slide-left-leave-to {
+  opacity: 0;
+  transform: translateX(-26px);
+}
+
+.plans-slide-right-enter-from {
+  opacity: 0;
+  transform: translateX(-26px);
+}
+
+.plans-slide-right-leave-to {
+  opacity: 0;
+  transform: translateX(26px);
+}
+
 .plan-table {
-  min-width: 1180px;
+  min-width: 1020px;
+}
+
+.plans-reports-table {
+  min-width: 860px;
 }
 
 .col-number {
@@ -797,11 +1250,15 @@ onBeforeUnmount(() => {
 }
 
 .col-deadline {
-  width: 19rem;
+  width: 15rem;
 }
 
 .col-responsible {
-  width: 20rem;
+  width: 14rem;
+}
+
+.col-action {
+  width: 11rem;
 }
 
 .number-cell {
@@ -906,12 +1363,33 @@ onBeforeUnmount(() => {
   width: 100%;
   justify-content: center;
   margin-top: 0.65rem;
+  padding-inline: 0.85rem;
+  text-align: center;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.plans-history-btn {
+  width: 100%;
+  justify-content: center;
+  padding-inline: 0.85rem;
+  text-align: center;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .cell-note {
   margin: 0.6rem 0 0;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.danger-text {
+  color: #a63f32;
+}
+
+.success-text {
+  color: #0f5e57;
 }
 
 .plans-modal {
@@ -924,6 +1402,69 @@ onBeforeUnmount(() => {
 
 .plans-read-modal {
   width: min(760px, 100%);
+}
+
+.plans-history-modal {
+  width: min(900px, 100%);
+}
+
+.plans-history-toolbar {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.plans-history-empty {
+  margin-top: 0.7rem;
+}
+
+.plans-history-list {
+  margin-top: 0.8rem;
+  max-height: min(52vh, 460px);
+  overflow: auto;
+  display: grid;
+  gap: 0.72rem;
+  padding-right: 0.2rem;
+}
+
+.plans-history-item {
+  border: 1px solid rgba(16, 33, 42, 0.11);
+  border-radius: 18px;
+  padding: 0.82rem 0.9rem;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.plans-history-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+
+.plans-history-text {
+  margin-bottom: 0.55rem;
+}
+
+.plans-history-files {
+  margin-bottom: 0.45rem;
+}
+
+.report-status-pending {
+  background: rgba(201, 111, 59, 0.14);
+  color: #9b4b24;
+}
+
+.report-status-completed {
+  background: rgba(17, 120, 111, 0.12);
+  color: #0f5e57;
+}
+
+.report-status-rejected {
+  background: rgba(183, 75, 58, 0.12);
+  color: #a63f32;
 }
 
 .plans-read-content {
@@ -1057,8 +1598,13 @@ onBeforeUnmount(() => {
     align-items: stretch;
   }
 
+  .plans-card-tabs {
+    max-width: 100%;
+  }
+
   .plans-filter {
     min-width: 100%;
+    max-width: none;
   }
 }
 

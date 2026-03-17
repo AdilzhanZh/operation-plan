@@ -13,6 +13,9 @@ export async function fetchPlanIndicators(year, options = {}) {
   if (options?.q) {
     params.q = options.q
   }
+  if (options?.direction) {
+    params.direction = options.direction
+  }
   if (options?.page) {
     params.page = options.page
   }
@@ -76,6 +79,9 @@ export async function fetchPlanReports(year, options = {}) {
   }
   if (options?.submitted_by) {
     params.submitted_by = options.submitted_by
+  }
+  if (options?.indicator_id) {
+    params.indicator_id = options.indicator_id
   }
 
   if (options?.page || options?.limit) {

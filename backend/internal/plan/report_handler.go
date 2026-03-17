@@ -28,8 +28,6 @@ const (
 	reportStatusOverdue   = "overdue"
 )
 
-var errReportAlreadySubmitted = errors.New("report already submitted")
-
 type listMeta struct {
 	Page       int `json:"page"`
 	Limit      int `json:"limit"`
@@ -186,10 +184,6 @@ func (h *Handler) submitPlanIndicatorReport(c *gin.Context) {
 
 	item, err := h.saveIndicatorReport(c, planItemID, indicatorID, year, reportText, uploadedFiles, user.ID)
 	if err != nil {
-		if errors.Is(err, errReportAlreadySubmitted) {
-			c.JSON(409, errorResponse{Error: "report already submitted and waiting for review"})
-			return
-		}
 		c.JSON(500, errorResponse{Error: "failed to save report"})
 		return
 	}
@@ -207,6 +201,7 @@ func (h *Handler) submitPlanIndicatorReport(c *gin.Context) {
 // @Param status query string false "Optional statuses: pending,completed,rejected,overdue. Comma-separated."
 // @Param q query string false "Search text by indicator/report"
 // @Param submitted_by query int false "Filter by prorector ID (admin only)"
+// @Param indicator_id query int false "Filter by indicator ID"
 // @Param page query int false "Page number (default 1)"
 // @Param limit query int false "Items per page (default 20, max 100)"
 // @Success 200 {object} planIndicatorReportListResponse
@@ -278,6 +273,17 @@ func (h *Handler) listPlanReports(c *gin.Context) {
 			args = append(args, submittedBy)
 			where = append(where, fmt.Sprintf("rs.submitted_by = $%d", len(args)))
 		}
+	}
+
+	indicatorIDRaw := strings.TrimSpace(c.Query("indicator_id"))
+	if indicatorIDRaw != "" {
+		indicatorID, convErr := strconv.Atoi(indicatorIDRaw)
+		if convErr != nil || indicatorID <= 0 {
+			c.JSON(400, errorResponse{Error: "indicator_id must be positive integer"})
+			return
+		}
+		args = append(args, indicatorID)
+		where = append(where, fmt.Sprintf("pi.indicator_id = $%d", len(args)))
 	}
 
 	if len(statuses) > 0 {
@@ -564,6 +570,7 @@ func (h *Handler) ensurePlanIndicatorReportsTable() error {
 				id BIGSERIAL PRIMARY KEY,
 				plan_item_id BIGINT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE,
 				submitted_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				legacy_source_report_id BIGINT NULL,
 				report_text TEXT NOT NULL DEFAULT '',
 				status VARCHAR(32) NOT NULL DEFAULT 'pending',
 				review_note TEXT NOT NULL DEFAULT '',
@@ -573,11 +580,48 @@ func (h *Handler) ensurePlanIndicatorReportsTable() error {
 				reviewed_at TIMESTAMPTZ NULL,
 				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-				UNIQUE (plan_item_id, submitted_by),
 				CHECK (status IN ('pending', 'completed', 'rejected'))
 			);`,
+			`ALTER TABLE report_submissions
+			  ADD COLUMN IF NOT EXISTS legacy_source_report_id BIGINT NULL;`,
+			`WITH mapped AS (
+				SELECT rs.id AS submission_id,
+				       src.legacy_id
+				FROM report_submissions rs
+				JOIN plan_items pi
+				  ON pi.id = rs.plan_item_id
+				JOIN LATERAL (
+				  SELECT pir.id AS legacy_id
+				  FROM plan_indicator_reports pir
+				  WHERE pir.planning_period_indicator_id = pi.indicator_id
+				    AND pir.year = pi.year
+				    AND pir.submitted_by = rs.submitted_by
+				  ORDER BY COALESCE(pir.submitted_at, pir.updated_at, pir.created_at, NOW()) DESC, pir.id DESC
+				  LIMIT 1
+				) src ON true
+				WHERE rs.legacy_source_report_id IS NULL
+			)
+			UPDATE report_submissions rs
+			SET legacy_source_report_id = mapped.legacy_id
+			FROM mapped
+			WHERE rs.id = mapped.submission_id;`,
+			`DO $$
+			BEGIN
+			  IF EXISTS (
+			    SELECT 1
+			    FROM pg_constraint
+			    WHERE conname = 'report_submissions_plan_item_id_submitted_by_key'
+			  ) THEN
+			    ALTER TABLE report_submissions
+			      DROP CONSTRAINT report_submissions_plan_item_id_submitted_by_key;
+			  END IF;
+			END $$;`,
+			`DROP INDEX IF EXISTS report_submissions_legacy_source_uidx;`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS report_submissions_legacy_source_uidx
+			 ON report_submissions (legacy_source_report_id);`,
 			`CREATE INDEX IF NOT EXISTS report_submissions_status_idx ON report_submissions (status);`,
 			`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_idx ON report_submissions (plan_item_id);`,
+			`CREATE INDEX IF NOT EXISTS report_submissions_plan_item_submitted_idx ON report_submissions (plan_item_id, submitted_by);`,
 			`UPDATE report_submissions
 			SET status = LOWER(TRIM(COALESCE(status, '')));`,
 			`UPDATE report_submissions
@@ -615,6 +659,7 @@ func (h *Handler) ensurePlanIndicatorReportsTable() error {
 			`INSERT INTO report_submissions (
 				plan_item_id,
 				submitted_by,
+				legacy_source_report_id,
 				report_text,
 				status,
 				review_note,
@@ -627,6 +672,7 @@ func (h *Handler) ensurePlanIndicatorReportsTable() error {
 			)
 			SELECT pi.id,
 			       pir.submitted_by,
+			       pir.id,
 			       COALESCE(pir.report_text, ''),
 			       CASE
 			           WHEN LOWER(TRIM(COALESCE(pir.status, ''))) IN ('completed', 'approved')
@@ -646,16 +692,7 @@ func (h *Handler) ensurePlanIndicatorReportsTable() error {
 			JOIN plan_items pi
 			  ON pi.indicator_id = pir.planning_period_indicator_id
 			 AND pi.year = pir.year
-			ON CONFLICT (plan_item_id, submitted_by)
-			DO UPDATE SET
-				report_text = EXCLUDED.report_text,
-				status = EXCLUDED.status,
-				review_note = EXCLUDED.review_note,
-				approval_formula = EXCLUDED.approval_formula,
-				reviewed_by = EXCLUDED.reviewed_by,
-				submitted_at = EXCLUDED.submitted_at,
-				reviewed_at = EXCLUDED.reviewed_at,
-				updated_at = NOW();`,
+			ON CONFLICT (legacy_source_report_id) DO NOTHING;`,
 		}
 
 		for _, stmt := range statements {
@@ -695,12 +732,8 @@ func (h *Handler) ensurePlanIndicatorReportFilesTable() error {
 			FROM plan_indicator_report_files prf
 			JOIN plan_indicator_reports pir
 			  ON pir.id = prf.report_id
-			JOIN plan_items pi
-			  ON pi.indicator_id = pir.planning_period_indicator_id
-			 AND pi.year = pir.year
 			JOIN report_submissions rs
-			  ON rs.plan_item_id = pi.id
-			 AND rs.submitted_by = pir.submitted_by
+			  ON rs.legacy_source_report_id = pir.id
 			WHERE COALESCE(prf.storage_path, '') <> ''
 			ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
 			`INSERT INTO report_files (submission_id, file_name, storage_key, mime_type, file_size, sha256, created_at)
@@ -715,12 +748,8 @@ func (h *Handler) ensurePlanIndicatorReportFilesTable() error {
 			       '',
 			       NOW()
 			FROM plan_indicator_reports pir
-			JOIN plan_items pi
-			  ON pi.indicator_id = pir.planning_period_indicator_id
-			 AND pi.year = pir.year
 			JOIN report_submissions rs
-			  ON rs.plan_item_id = pi.id
-			 AND rs.submitted_by = pir.submitted_by
+			  ON rs.legacy_source_report_id = pir.id
 			WHERE COALESCE(TRIM(pir.file_path), '') <> ''
 			ON CONFLICT (submission_id, storage_key) DO NOTHING;`,
 		}
@@ -790,7 +819,7 @@ func (h *Handler) saveIndicatorReport(
 	}
 	defer tx.Rollback()
 
-	submissionID, oldFilePaths, err := h.upsertReportRow(tx, planItemID, submittedBy, reportText)
+	submissionID, err := h.insertReportRow(tx, planItemID, submittedBy, reportText)
 	if err != nil {
 		return planIndicatorReportRow{}, err
 	}
@@ -846,8 +875,6 @@ func (h *Handler) saveIndicatorReport(
 		return planIndicatorReportRow{}, err
 	}
 
-	removeFiles(oldFilePaths)
-
 	item, err := h.fetchPlanReportByID(int(submissionID))
 	if err != nil {
 		return planIndicatorReportRow{}, err
@@ -855,116 +882,37 @@ func (h *Handler) saveIndicatorReport(
 	return item, nil
 }
 
-func (h *Handler) upsertReportRow(
+func (h *Handler) insertReportRow(
 	tx *sql.Tx,
 	planItemID int64,
 	submittedBy int64,
 	reportText string,
-) (int64, []string, error) {
+) (int64, error) {
 	var submissionID int64
-	var currentStatus string
 	err := tx.QueryRow(`
-		SELECT id, status
-		FROM report_submissions
-		WHERE plan_item_id = $1
-		  AND submitted_by = $2
-		LIMIT 1
-	`, planItemID, submittedBy).Scan(&submissionID, &currentStatus)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return 0, nil, err
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		err = tx.QueryRow(`
-			INSERT INTO report_submissions (
-				plan_item_id,
-				submitted_by,
-				report_text,
-				status,
-				review_note,
-				approval_formula,
-				reviewed_by,
-				submitted_at,
-				created_at,
-				updated_at
-			)
-			VALUES ($1, $2, $3, $4, '', '', NULL, NOW(), NOW(), NOW())
-			RETURNING id
-		`, planItemID, submittedBy, reportText, reportStatusPending).Scan(&submissionID)
-		if err != nil {
-			return 0, nil, err
-		}
-
-		if err := insertReportStatusHistoryTx(tx, submissionID, "", reportStatusPending, submittedBy, "submitted"); err != nil {
-			return 0, nil, err
-		}
-		return submissionID, nil, nil
-	}
-
-	if !canReportStatusTransition(currentStatus, reportStatusPending) {
-		return 0, nil, errReportAlreadySubmitted
-	}
-
-	oldFilePaths, err := collectSubmissionFilePaths(tx, submissionID)
+		INSERT INTO report_submissions (
+			plan_item_id,
+			submitted_by,
+			report_text,
+			status,
+			review_note,
+			approval_formula,
+			reviewed_by,
+			submitted_at,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, '', '', NULL, NOW(), NOW(), NOW())
+		RETURNING id
+	`, planItemID, submittedBy, reportText, reportStatusPending).Scan(&submissionID)
 	if err != nil {
-		return 0, nil, err
+		return 0, err
 	}
 
-	if _, err := tx.Exec(`
-		DELETE FROM report_files
-		WHERE submission_id = $1
-	`, submissionID); err != nil {
-		return 0, nil, err
+	if err := insertReportStatusHistoryTx(tx, submissionID, "", reportStatusPending, submittedBy, "submitted"); err != nil {
+		return 0, err
 	}
-
-	if _, err := tx.Exec(`
-		UPDATE report_submissions
-		SET report_text = $1,
-		    status = $2,
-		    review_note = '',
-		    approval_formula = '',
-		    reviewed_by = NULL,
-		    reviewed_at = NULL,
-		    submitted_at = NOW(),
-		    updated_at = NOW()
-		WHERE id = $3
-	`, reportText, reportStatusPending, submissionID); err != nil {
-		return 0, nil, err
-	}
-
-	if err := insertReportStatusHistoryTx(tx, submissionID, normalizeReportStatus(currentStatus), reportStatusPending, submittedBy, "resubmitted"); err != nil {
-		return 0, nil, err
-	}
-
-	return submissionID, oldFilePaths, nil
-}
-
-func collectSubmissionFilePaths(tx *sql.Tx, submissionID int64) ([]string, error) {
-	rows, err := tx.Query(`
-		SELECT storage_key
-		FROM report_files
-		WHERE submission_id = $1
-	`, submissionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	paths := make([]string, 0)
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		path = strings.TrimSpace(path)
-		if path != "" {
-			paths = append(paths, path)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return paths, nil
+	return submissionID, nil
 }
 
 func (h *Handler) fetchPlanReportByID(reportID int) (planIndicatorReportRow, error) {

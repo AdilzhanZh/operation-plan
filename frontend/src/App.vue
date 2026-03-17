@@ -15,7 +15,7 @@ const navigation = computed(() => [
   { name: tr('Панель управления', 'Басқару панелі'), description: tr('Обзор статусов и сроков', 'Мәртебелер мен мерзімдер шолуы'), to: { name: 'dashboard' } },
   { name: tr('Профиль', 'Профиль'), description: tr('Аккаунт и настройки доступа', 'Аккаунт пен қолжетімділік баптаулары'), to: { name: 'profile' } },
   { name: tr('Пользователи', 'Пайдаланушылар'), description: tr('Пользователи системы', 'Жүйе пайдаланушылары'), to: { name: 'users' }, roles: ['admin'] },
-  { name: tr('Планы', 'Жоспарлар'), description: tr('Рабочие планы по текущему году', 'Ағымдағы жылға арналған жұмыс жоспарлары'), to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
+  { name: tr('Планы и отчеты', 'Жоспарлар мен есептер'), description: tr('Рабочие планы и история отчетов по текущему году', 'Ағымдағы жылға арналған жұмыс жоспарлары мен есеп тарихы'), to: { name: 'plans' }, roles: ['admin', 'prorector', 'viewer'] },
   { name: tr('Плановый период', 'Жоспарлы кезең'), description: tr('Целевые показатели по годам', 'Жылдар бойынша мақсатты индикаторлар'), to: { name: 'planning-period' }, roles: ['admin', 'prorector'] },
   { name: tr('Выполнение программы', 'Бағдарлама орындалуы'), description: tr('Отчеты и согласование', 'Есептер және келісу'), to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
 ])

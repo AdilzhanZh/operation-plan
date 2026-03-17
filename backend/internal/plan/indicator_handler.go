@@ -16,6 +16,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	planDirectionAcademic = "Академическое превосходство и интернационализация образования"
+	planDirectionScience  = "РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА"
+	planDirectionDigital  = "ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ"
+)
+
 type planYearsResponse struct {
 	Years []int `json:"years"`
 }
@@ -29,6 +35,7 @@ type planIndicatorListResponse struct {
 type planIndicatorRow struct {
 	IndicatorID          int     `json:"indicator_id"`
 	SourceIndicator      string  `json:"source_indicator"`
+	Direction            string  `json:"direction"`
 	Unit                 string  `json:"unit"`
 	MeasurementUnit      string  `json:"measurement_unit"`
 	PlannedValue         string  `json:"planned_value"`
@@ -129,6 +136,7 @@ func (h *Handler) listPlanYears(c *gin.Context) {
 // @Security BearerAuth
 // @Param year query int true "Year"
 // @Param q query string false "Search text"
+// @Param direction query string false "Direction"
 // @Param page query int false "Page number (default 1)"
 // @Param limit query int false "Items per page (default 20, max 100)"
 // @Success 200 {object} planIndicatorListResponse
@@ -153,6 +161,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		return
 	}
 	searchQuery := strings.TrimSpace(c.Query("q"))
+	directionFilter := strings.TrimSpace(c.Query("direction"))
 	includeSubmitted := strings.EqualFold(strings.TrimSpace(c.Query("include_submitted")), "true")
 
 	if err := h.ensurePlanningPeriodTable(); err != nil {
@@ -178,9 +187,20 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		ph := fmt.Sprintf("$%d", len(args))
 		where = append(where, fmt.Sprintf(`(
 			ppi.target_indicator ILIKE %s
+			OR COALESCE(ppi.direction, '') ILIKE %s
 			OR COALESCE(pi.development_indicator, '') ILIKE %s
 			OR COALESCE(pi.activities, '') ILIKE %s
-		)`, ph, ph, ph))
+		)`, ph, ph, ph, ph))
+	}
+
+	if directionFilter != "" {
+		if !isAllowedPlanDirection(directionFilter) {
+			c.JSON(400, errorResponse{Error: "invalid direction"})
+			return
+		}
+		args = append(args, directionFilter)
+		ph := fmt.Sprintf("$%d", len(args))
+		where = append(where, fmt.Sprintf("ppi.direction = %s", ph))
 	}
 
 	if user.Role == "prorector" {
@@ -230,6 +250,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 	rows, err := h.db.Query(`
 		SELECT ppi.id,
 		       ppi.target_indicator,
+		       COALESCE(ppi.direction, ''),
 		       COALESCE(ppi.unit, ''),
 		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
@@ -304,6 +325,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		if err := rows.Scan(
 			&item.IndicatorID,
 			&item.SourceIndicator,
+			&item.Direction,
 			&item.Unit,
 			&item.PlannedValue,
 			&item.DevelopmentIndicator,
@@ -545,6 +567,16 @@ func resolveCurrentPlanYear(raw string) (int, error) {
 	return year, nil
 }
 
+func isAllowedPlanDirection(value string) bool {
+	normalized := strings.TrimSpace(value)
+	switch normalized {
+	case planDirectionAcademic, planDirectionScience, planDirectionDigital:
+		return true
+	default:
+		return false
+	}
+}
+
 func parseExecutionDateRange(startRaw, endRaw string) (time.Time, time.Time, error) {
 	startValue := strings.TrimSpace(startRaw)
 	endValue := strings.TrimSpace(endRaw)
@@ -573,10 +605,82 @@ func (h *Handler) ensurePlanningPeriodTable() error {
 			id BIGSERIAL PRIMARY KEY,
 			target_indicator TEXT NOT NULL,
 			unit VARCHAR(32) NOT NULL,
+			direction TEXT NOT NULL DEFAULT 'Академическое превосходство и интернационализация образования',
 			year_values JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+		`ALTER TABLE planning_period_indicators
+		  ADD COLUMN IF NOT EXISTS direction TEXT;`,
+		`WITH numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = ''
+			   OR direction NOT IN (
+			       'Академическое превосходство и интернационализация образования',
+			       'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+			       'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+			   )
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id;`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET DEFAULT 'Академическое превосходство и интернационализация образования';`,
+		`UPDATE planning_period_indicators
+		 SET direction = 'Академическое превосходство и интернационализация образования'
+		 WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = '';`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET NOT NULL;`,
+		`DO $$
+		BEGIN
+		  IF NOT EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'planning_period_indicators_direction_check'
+		  ) THEN
+		    ALTER TABLE planning_period_indicators
+		      ADD CONSTRAINT planning_period_indicators_direction_check
+		      CHECK (direction IN (
+		        'Академическое превосходство и интернационализация образования',
+		        'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+		        'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		      ));
+		  END IF;
+		END $$;`,
+		`WITH stats AS (
+			SELECT COUNT(*) AS total_rows,
+			       COUNT(DISTINCT direction) AS distinct_directions,
+			       BOOL_AND(direction = 'Академическое превосходство и интернационализация образования') AS only_default_direction
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') <> ''
+		),
+		numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id
+		  AND EXISTS (
+		    SELECT 1
+		    FROM stats
+		    WHERE stats.total_rows > 1
+		      AND stats.distinct_directions = 1
+		      AND stats.only_default_direction
+		  );`,
 		`CREATE TABLE IF NOT EXISTS indicator_year_targets (
 			id BIGSERIAL PRIMARY KEY,
 			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,

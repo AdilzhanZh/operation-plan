@@ -22,15 +22,29 @@ type Handler struct {
 	db *sql.DB
 }
 
+const (
+	directionAcademic = "Академическое превосходство и интернационализация образования"
+	directionScience  = "РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА"
+	directionDigital  = "ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ"
+)
+
+var allowedDirections = []string{
+	directionAcademic,
+	directionScience,
+	directionDigital,
+}
+
 type createPlanningPeriodRequest struct {
 	TargetIndicator string            `json:"target_indicator" binding:"required"`
 	Unit            string            `json:"unit" binding:"required"`
+	Direction       string            `json:"direction" binding:"required"`
 	YearValues      map[string]string `json:"year_values" binding:"required"`
 }
 
 type updatePlanningPeriodRequest struct {
 	TargetIndicator *string           `json:"target_indicator"`
 	Unit            *string           `json:"unit"`
+	Direction       *string           `json:"direction"`
 	YearValues      map[string]string `json:"year_values"`
 }
 
@@ -96,7 +110,7 @@ func (h *Handler) list(c *gin.Context) {
 	if searchQuery != "" {
 		args = append(args, "%"+searchQuery+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
-		where = append(where, fmt.Sprintf("(target_indicator ILIKE %s OR unit ILIKE %s)", placeholder, placeholder))
+		where = append(where, fmt.Sprintf("(target_indicator ILIKE %s OR unit ILIKE %s OR direction ILIKE %s)", placeholder, placeholder, placeholder))
 	}
 	whereClause := strings.Join(where, " AND ")
 
@@ -114,7 +128,7 @@ func (h *Handler) list(c *gin.Context) {
 	offset := (page - 1) * limit
 	queryArgs = append(queryArgs, limit, offset)
 	rows, err := h.db.Query(`
-		SELECT id, target_indicator, unit, created_at, updated_at
+		SELECT id, target_indicator, unit, direction, created_at, updated_at
 		FROM planning_period_indicators
 		WHERE `+whereClause+`
 		ORDER BY id ASC
@@ -135,6 +149,7 @@ func (h *Handler) list(c *gin.Context) {
 			&item.ID,
 			&item.TargetIndicator,
 			&item.Unit,
+			&item.Direction,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
@@ -215,8 +230,13 @@ func (h *Handler) create(c *gin.Context) {
 
 	req.TargetIndicator = strings.TrimSpace(req.TargetIndicator)
 	req.Unit = strings.TrimSpace(req.Unit)
-	if req.TargetIndicator == "" || req.Unit == "" {
-		c.JSON(400, errorResponse{Error: "target_indicator and unit are required"})
+	req.Direction = strings.TrimSpace(req.Direction)
+	if req.TargetIndicator == "" || req.Unit == "" || req.Direction == "" {
+		c.JSON(400, errorResponse{Error: "target_indicator, unit and direction are required"})
+		return
+	}
+	if !isAllowedDirection(req.Direction) {
+		c.JSON(400, errorResponse{Error: "invalid direction"})
 		return
 	}
 	if err := validateYearValues(req.YearValues); err != nil {
@@ -239,10 +259,10 @@ func (h *Handler) create(c *gin.Context) {
 
 	var id int64
 	err = tx.QueryRow(`
-		INSERT INTO planning_period_indicators (target_indicator, unit, year_values, created_at, updated_at)
-		VALUES ($1, $2, $3::jsonb, NOW(), NOW())
+		INSERT INTO planning_period_indicators (target_indicator, unit, direction, year_values, created_at, updated_at)
+		VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW())
 		RETURNING id
-	`, req.TargetIndicator, req.Unit, yearValuesJSON).Scan(&id)
+	`, req.TargetIndicator, req.Unit, req.Direction, yearValuesJSON).Scan(&id)
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to create indicator"})
 		return
@@ -337,6 +357,19 @@ func (h *Handler) update(c *gin.Context) {
 		item.Unit = next
 	}
 
+	if req.Direction != nil {
+		next := strings.TrimSpace(*req.Direction)
+		if next == "" {
+			c.JSON(400, errorResponse{Error: "direction cannot be empty"})
+			return
+		}
+		if !isAllowedDirection(next) {
+			c.JSON(400, errorResponse{Error: "invalid direction"})
+			return
+		}
+		item.Direction = next
+	}
+
 	if req.YearValues != nil {
 		if err := validateYearValues(req.YearValues); err != nil {
 			c.JSON(400, errorResponse{Error: err.Error()})
@@ -362,10 +395,11 @@ func (h *Handler) update(c *gin.Context) {
 		UPDATE planning_period_indicators
 		SET target_indicator = $1,
 		    unit = $2,
-		    year_values = $3::jsonb,
+		    direction = $3,
+		    year_values = $4::jsonb,
 		    updated_at = NOW()
-		WHERE id = $4
-	`, item.TargetIndicator, item.Unit, yearValuesJSON, id)
+		WHERE id = $5
+	`, item.TargetIndicator, item.Unit, item.Direction, yearValuesJSON, id)
 	if err != nil {
 		c.JSON(500, errorResponse{Error: "failed to update indicator"})
 		return
@@ -395,6 +429,7 @@ func (h *Handler) update(c *gin.Context) {
 type planningPeriodImportRow struct {
 	TargetIndicator string
 	Unit            string
+	Direction       string
 	YearValues      map[string]string
 }
 
@@ -467,6 +502,12 @@ func (h *Handler) importExcel(c *gin.Context) {
 			return
 		}
 
+		explicitDirection := strings.TrimSpace(row.Direction)
+		if explicitDirection != "" && !isAllowedDirection(explicitDirection) {
+			c.JSON(400, errorResponse{Error: fmt.Sprintf("invalid direction for indicator: %s", row.TargetIndicator)})
+			return
+		}
+
 		var id int64
 		scanErr := tx.QueryRow(`
 			SELECT id
@@ -481,24 +522,42 @@ func (h *Handler) importExcel(c *gin.Context) {
 		}
 
 		if errors.Is(scanErr, sql.ErrNoRows) {
+			directionForInsert := explicitDirection
+			if directionForInsert == "" {
+				directionForInsert = assignDirectionByIndicator(row.TargetIndicator)
+			}
+
 			if err := tx.QueryRow(`
-				INSERT INTO planning_period_indicators (target_indicator, unit, year_values, created_at, updated_at)
-				VALUES ($1, $2, $3::jsonb, NOW(), NOW())
+				INSERT INTO planning_period_indicators (target_indicator, unit, direction, year_values, created_at, updated_at)
+				VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW())
 				RETURNING id
-			`, row.TargetIndicator, row.Unit, yearValuesJSON).Scan(&id); err != nil {
+			`, row.TargetIndicator, row.Unit, directionForInsert, yearValuesJSON).Scan(&id); err != nil {
 				c.JSON(500, errorResponse{Error: "failed to create imported indicator"})
 				return
 			}
 			created++
 		} else {
-			if _, err := tx.Exec(`
+			if explicitDirection == "" {
+				if _, err := tx.Exec(`
 				UPDATE planning_period_indicators
 				SET year_values = $1::jsonb,
 				    updated_at = NOW()
 				WHERE id = $2
 			`, yearValuesJSON, id); err != nil {
-				c.JSON(500, errorResponse{Error: "failed to update imported indicator"})
-				return
+					c.JSON(500, errorResponse{Error: "failed to update imported indicator"})
+					return
+				}
+			} else {
+				if _, err := tx.Exec(`
+				UPDATE planning_period_indicators
+				SET direction = $1,
+				    year_values = $2::jsonb,
+				    updated_at = NOW()
+				WHERE id = $3
+			`, explicitDirection, yearValuesJSON, id); err != nil {
+					c.JSON(500, errorResponse{Error: "failed to update imported indicator"})
+					return
+				}
 			}
 			updated++
 		}
@@ -538,11 +597,13 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 	headerRowIndex := -1
 	targetIndex := -1
 	unitIndex := -1
+	directionIndex := -1
 	yearColumns := map[int]int{}
 
 	for rowIdx, row := range rawRows {
 		tmpTarget := -1
 		tmpUnit := -1
+		tmpDirection := -1
 		tmpYearColumns := map[int]int{}
 
 		for cellIdx, cell := range row {
@@ -552,6 +613,10 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 				tmpTarget = cellIdx
 			case strings.Contains(normalized, "ед изм"):
 				tmpUnit = cellIdx
+			case strings.Contains(normalized, "направление"),
+				strings.Contains(normalized, "бағыт"),
+				strings.Contains(normalized, "багыт"):
+				tmpDirection = cellIdx
 			}
 
 			year, yearErr := strconv.Atoi(strings.TrimSpace(cell))
@@ -564,6 +629,7 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 			headerRowIndex = rowIdx
 			targetIndex = tmpTarget
 			unitIndex = tmpUnit
+			directionIndex = tmpDirection
 			yearColumns = tmpYearColumns
 			break
 		}
@@ -580,6 +646,7 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 		row := rawRows[rowIdx]
 		target := strings.TrimSpace(cellAt(row, targetIndex))
 		unit := strings.TrimSpace(cellAt(row, unitIndex))
+		direction := strings.TrimSpace(cellAt(row, directionIndex))
 
 		yearValues := map[string]string{}
 		for colIdx, year := range yearColumns {
@@ -595,13 +662,16 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 			yearValues[strconv.Itoa(year)] = parsedValue
 		}
 
-		if target == "" && unit == "" && len(yearValues) == 0 {
+		if target == "" && unit == "" && direction == "" && len(yearValues) == 0 {
 			skipped++
 			continue
 		}
 
 		if target == "" || unit == "" {
 			return nil, 0, fmt.Errorf("target indicator and unit are required at row %d", rowIdx+1)
+		}
+		if direction != "" && !isAllowedDirection(direction) {
+			return nil, 0, fmt.Errorf("invalid direction at row %d", rowIdx+1)
 		}
 		if len(yearValues) == 0 {
 			skipped++
@@ -615,6 +685,7 @@ func parsePlanningPeriodWorkbook(workbook *excelize.File) ([]planningPeriodImpor
 		rows = append(rows, planningPeriodImportRow{
 			TargetIndicator: target,
 			Unit:            unit,
+			Direction:       direction,
 			YearValues:      yearValues,
 		})
 	}
@@ -647,7 +718,7 @@ func normalizeExcelCellValue(raw string) string {
 func (h *Handler) fetchIndicatorByID(id int) (model.PlanningPeriodIndicator, error) {
 	var item model.PlanningPeriodIndicator
 	err := h.db.QueryRow(`
-		SELECT id, target_indicator, unit, created_at, updated_at
+		SELECT id, target_indicator, unit, direction, created_at, updated_at
 		FROM planning_period_indicators
 		WHERE id = $1
 		LIMIT 1
@@ -655,6 +726,7 @@ func (h *Handler) fetchIndicatorByID(id int) (model.PlanningPeriodIndicator, err
 		&item.ID,
 		&item.TargetIndicator,
 		&item.Unit,
+		&item.Direction,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -772,10 +844,82 @@ func (h *Handler) ensurePlanningPeriodTable() error {
 			id BIGSERIAL PRIMARY KEY,
 			target_indicator TEXT NOT NULL,
 			unit VARCHAR(32) NOT NULL,
+			direction TEXT NOT NULL DEFAULT 'Академическое превосходство и интернационализация образования',
 			year_values JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+		`ALTER TABLE planning_period_indicators
+		  ADD COLUMN IF NOT EXISTS direction TEXT;`,
+		`WITH numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = ''
+			   OR direction NOT IN (
+			       'Академическое превосходство и интернационализация образования',
+			       'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+			       'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+			   )
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id;`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET DEFAULT 'Академическое превосходство и интернационализация образования';`,
+		`UPDATE planning_period_indicators
+		 SET direction = 'Академическое превосходство и интернационализация образования'
+		 WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') = '';`,
+		`ALTER TABLE planning_period_indicators
+		  ALTER COLUMN direction SET NOT NULL;`,
+		`DO $$
+		BEGIN
+		  IF NOT EXISTS (
+		    SELECT 1
+		    FROM pg_constraint
+		    WHERE conname = 'planning_period_indicators_direction_check'
+		  ) THEN
+		    ALTER TABLE planning_period_indicators
+		      ADD CONSTRAINT planning_period_indicators_direction_check
+		      CHECK (direction IN (
+		        'Академическое превосходство и интернационализация образования',
+		        'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА',
+		        'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		      ));
+		  END IF;
+		END $$;`,
+		`WITH stats AS (
+			SELECT COUNT(*) AS total_rows,
+			       COUNT(DISTINCT direction) AS distinct_directions,
+			       BOOL_AND(direction = 'Академическое превосходство и интернационализация образования') AS only_default_direction
+			FROM planning_period_indicators
+			WHERE COALESCE(NULLIF(BTRIM(direction), ''), '') <> ''
+		),
+		numbered AS (
+			SELECT id,
+			       ROW_NUMBER() OVER (ORDER BY id ASC) AS rn
+			FROM planning_period_indicators
+		)
+		UPDATE planning_period_indicators AS ppi
+		SET direction = CASE
+			WHEN ((numbered.rn - 1) % 3) = 0 THEN 'Академическое превосходство и интернационализация образования'
+			WHEN ((numbered.rn - 1) % 3) = 1 THEN 'РАЗВИТИЕ НАУКИ И МЕЖДУНАРОДНОГО СОТРУДНИЧЕСТВА'
+			ELSE 'ЦИФРОВИЗАЦИЯ И МОДЕРНИЗАЦИЯ ИНФРАСТРУКТУРЫ'
+		END
+		FROM numbered
+		WHERE ppi.id = numbered.id
+		  AND EXISTS (
+		    SELECT 1
+		    FROM stats
+		    WHERE stats.total_rows > 1
+		      AND stats.distinct_directions = 1
+		      AND stats.only_default_direction
+		  );`,
 		`CREATE TABLE IF NOT EXISTS indicator_year_targets (
 			id BIGSERIAL PRIMARY KEY,
 			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
@@ -822,6 +966,37 @@ func (h *Handler) ensurePlanningPeriodTable() error {
 	}
 
 	return nil
+}
+
+func isAllowedDirection(value string) bool {
+	normalized := strings.TrimSpace(value)
+	for _, direction := range allowedDirections {
+		if normalized == direction {
+			return true
+		}
+	}
+	return false
+}
+
+func assignDirectionByIndicator(indicator string) string {
+	normalized := strings.TrimSpace(indicator)
+	if normalized == "" {
+		return directionAcademic
+	}
+
+	sum := 0
+	for _, ch := range normalized {
+		sum += int(ch)
+	}
+
+	switch sum % len(allowedDirections) {
+	case 0:
+		return directionAcademic
+	case 1:
+		return directionScience
+	default:
+		return directionDigital
+	}
 }
 
 func parsePagination(pageRaw, limitRaw string) (int, int, error) {
