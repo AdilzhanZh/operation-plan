@@ -206,6 +206,8 @@ a {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   padding: 0.25rem;
   border: 1px solid rgba(221, 224, 242, 0.9);
@@ -213,6 +215,7 @@ a {
   background: rgba(248, 249, 255, 0.92);
   overflow-x: auto;
   scrollbar-width: none;
+  justify-self: center;
 }
 
 .topbar-nav::-webkit-scrollbar {
@@ -1090,7 +1093,9 @@ button:disabled,
   }
 
   .topbar-nav {
+    width: 100%;
     justify-content: flex-start;
+    justify-self: stretch;
   }
 }
 
