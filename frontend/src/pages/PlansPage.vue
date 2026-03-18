@@ -72,6 +72,7 @@ const readModalText = ref('')
 const rowEditModalOpen = ref(false)
 const rowEditIndicatorId = ref(null)
 const rowEditForm = ref({
+  evaluation_formula: '',
   execution_start_date: '',
   execution_end_date: '',
   responsible_user_ids: []
@@ -280,6 +281,7 @@ async function loadRows() {
   rows.value = (response.items ?? []).map((item) => ({
     ...item,
     direction: item.direction ?? '',
+    evaluation_formula: item.evaluation_formula ?? '',
     execution_start_date: item.execution_start_date ?? '',
     execution_end_date: item.execution_end_date ?? '',
     schedule_status: item.schedule_status ?? 'not_filled',
@@ -503,6 +505,7 @@ async function saveRow(row) {
 
     const saved = await savePlanIndicator(row.indicator_id, selectedYear.value, {
       development_indicator: row.development_indicator,
+      evaluation_formula: row.evaluation_formula,
       activities: row.activities,
       execution_start_date: row.execution_start_date,
       execution_end_date: row.execution_end_date,
@@ -511,6 +514,7 @@ async function saveRow(row) {
 
     Object.assign(row, {
       ...saved,
+      evaluation_formula: saved?.evaluation_formula ?? '',
       execution_start_date: saved?.execution_start_date ?? '',
       execution_end_date: saved?.execution_end_date ?? '',
       schedule_status: saved?.schedule_status ?? 'not_filled',
@@ -536,6 +540,7 @@ function openRowEditModal(row) {
 
   rowEditIndicatorId.value = row.indicator_id
   rowEditForm.value = {
+    evaluation_formula: String(row.evaluation_formula ?? ''),
     execution_start_date: String(row.execution_start_date ?? ''),
     execution_end_date: String(row.execution_end_date ?? ''),
     responsible_user_ids: normalizeIDList(row.responsible_user_ids)
@@ -548,6 +553,7 @@ function closeRowEditModal() {
   rowEditModalOpen.value = false
   rowEditIndicatorId.value = null
   rowEditForm.value = {
+    evaluation_formula: '',
     execution_start_date: '',
     execution_end_date: '',
     responsible_user_ids: []
@@ -567,6 +573,7 @@ async function saveRowFromModal() {
 
   row.execution_start_date = String(rowEditForm.value.execution_start_date ?? '')
   row.execution_end_date = String(rowEditForm.value.execution_end_date ?? '')
+  row.evaluation_formula = String(rowEditForm.value.evaluation_formula ?? '')
   row.responsible_user_ids = normalizeIDList(rowEditForm.value.responsible_user_ids)
   row.responsible = formatResponsibleNamesByIDs(row.responsible_user_ids)
 
@@ -1876,17 +1883,12 @@ onBeforeUnmount(() => {
 
         <div class="row-edit-grid">
           <label class="modal-label">
-            {{ tr('Индикатор Программы развития', 'Бағдарлама индикаторы') }}
-            <div
-              class="plans-readonly-indicator text-pretty"
-              role="button"
-              tabindex="0"
-              @click="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
-              @keyup.enter="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
-              @keyup.space.prevent="openReadModal(tr('Индикатор Программы развития', 'Бағдарлама индикаторы'), activeRowEdit?.development_indicator)"
-            >
-              {{ textPreview(activeRowEdit?.development_indicator) }}
-            </div>
+            {{ tr('Формула оценки', 'Бағалау формуласы') }}
+            <textarea
+              v-model="rowEditForm.evaluation_formula"
+              class="plans-textarea modal-textarea"
+              :placeholder="tr('Например: (157 / 525) * 100%', 'Мысалы: (157 / 525) * 100%')"
+            />
           </label>
 
           <div class="row-edit-dates">

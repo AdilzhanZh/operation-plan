@@ -274,6 +274,7 @@ func RunSQLMigrations(db *sql.DB) error {
 			indicator_id BIGINT NOT NULL REFERENCES planning_period_indicators(id) ON DELETE CASCADE,
 			year INT NOT NULL CHECK (year >= 2000 AND year <= 2100),
 			development_indicator TEXT NOT NULL DEFAULT '',
+			evaluation_formula TEXT NOT NULL DEFAULT '',
 			activities TEXT NOT NULL DEFAULT '',
 			execution_deadline TEXT NOT NULL DEFAULT '',
 			execution_start_date DATE NULL,
@@ -283,6 +284,8 @@ func RunSQLMigrations(db *sql.DB) error {
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (indicator_id, year)
 		);`,
+		`ALTER TABLE plan_items
+		  ADD COLUMN IF NOT EXISTS evaluation_formula TEXT NOT NULL DEFAULT '';`,
 		`ALTER TABLE plan_items
 		  ADD COLUMN IF NOT EXISTS execution_start_date DATE NULL;`,
 		`ALTER TABLE plan_items
@@ -300,6 +303,7 @@ func RunSQLMigrations(db *sql.DB) error {
 			indicator_id,
 			year,
 			development_indicator,
+			evaluation_formula,
 			activities,
 			execution_deadline,
 			execution_start_date,
@@ -311,6 +315,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		SELECT pid.planning_period_indicator_id,
 		       pid.year,
 		       COALESCE(pid.development_indicator, ''),
+		       '',
 		       COALESCE(pid.activities, ''),
 		       '',
 		       NULL,
@@ -322,6 +327,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		ON CONFLICT (indicator_id, year)
 		DO UPDATE SET
 			development_indicator = EXCLUDED.development_indicator,
+			evaluation_formula = COALESCE(NULLIF(plan_items.evaluation_formula, ''), EXCLUDED.evaluation_formula),
 			activities = EXCLUDED.activities,
 			execution_deadline = EXCLUDED.execution_deadline,
 			updated_at = NOW();`,
@@ -329,6 +335,7 @@ func RunSQLMigrations(db *sql.DB) error {
 			indicator_id,
 			year,
 			development_indicator,
+			evaluation_formula,
 			activities,
 			execution_deadline,
 			execution_start_date,
@@ -340,6 +347,7 @@ func RunSQLMigrations(db *sql.DB) error {
 		SELECT pir.planning_period_indicator_id,
 		       pir.year,
 		       COALESCE(NULLIF(TRIM(pid.development_indicator), ''), ppi.target_indicator, ''),
+		       '',
 		       COALESCE(pid.activities, ''),
 		       '',
 		       NULL,
