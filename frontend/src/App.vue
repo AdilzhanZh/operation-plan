@@ -40,6 +40,21 @@ const currentUserRole = computed(() => {
   }
   return role || tr('Участник рабочей области', 'Жұмыс кеңістігінің қатысушысы')
 })
+const currentUserInitials = computed(() => {
+  const parts = currentUserName.value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return 'OP'
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('')
+})
 
 async function logout() {
   try {
@@ -59,44 +74,56 @@ async function logout() {
   </div>
 
   <div v-else class="app-shell">
-    <aside class="app-sidebar">
-      <div class="sidebar-top">
-        <span class="sidebar-chip">{{ tr('Платформа операционного планирования', 'Операциялық жоспарлау платформасы') }}</span>
-        <h1 class="brand">Oper Plan</h1>
-        <p class="subtitle">{{ tr('Рабочее пространство университета Коркыт Ата для планирования, исполнения и контроля.', 'Қорқыт Ата университетінің жоспарлау, орындау және бақылау жұмыс кеңістігі.') }}</p>
-      </div>
+    <div class="app-frame">
+      <header class="app-topbar">
+        <div class="topbar-brand-row">
+          <RouterLink :to="{ name: 'dashboard' }" class="topbar-brand">
+            <span class="topbar-brand-mark">OP</span>
+            <span class="topbar-brand-copy">
+              <strong>Oper Plan</strong>
+              <span>{{ tr('Панель координации и контроля', 'Үйлестіру және бақылау панелі') }}</span>
+            </span>
+          </RouterLink>
 
-      <section class="sidebar-profile">
-        <span class="sidebar-label">{{ tr('Текущий аккаунт', 'Ағымдағы аккаунт') }}</span>
-        <strong>{{ currentUserName }}</strong>
-        <span>{{ currentUserRole }}</span>
-        <div class="sidebar-lang">
-          <LanguageSwitch />
+          <div class="topbar-bubbles" aria-hidden="true">
+            <span class="topbar-bubble topbar-bubble-violet">AI</span>
+            <span class="topbar-bubble topbar-bubble-mint">PL</span>
+            <span class="topbar-bubble topbar-bubble-sand">KP</span>
+          </div>
         </div>
-      </section>
 
-      <nav class="sidebar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">
-        <RouterLink
-          v-for="item in visibleNavigation"
-          :key="item.name"
-          :to="item.to"
-          class="menu-item"
-        >
-          <span class="menu-item-title">{{ item.name }}</span>
-          <span class="menu-item-text">{{ item.description }}</span>
-        </RouterLink>
-      </nav>
+        <nav class="topbar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">
+          <RouterLink
+            v-for="item in visibleNavigation"
+            :key="item.name"
+            :to="item.to"
+            class="topbar-nav-link"
+          >
+            {{ item.name }}
+          </RouterLink>
+        </nav>
 
-      <div class="sidebar-footer">
-        <p class="sidebar-note">{{ tr('Единая среда для сроков, ответственных и контрольных отчетов.', 'Мерзімдер, жауаптылар және бақылау есептері үшін бірыңғай орта.') }}</p>
-        <button type="button" class="btn btn-secondary sidebar-logout" @click="logout">{{ tr('Выйти', 'Шығу') }}</button>
-      </div>
-    </aside>
+        <div class="topbar-meta">
+          <LanguageSwitch />
+          <button type="button" class="btn btn-secondary topbar-logout" @click="logout">
+            {{ tr('Выйти', 'Шығу') }}
+          </button>
 
-    <main class="app-main">
-      <div class="app-main-inner">
-        <RouterView />
-      </div>
-    </main>
+          <div class="topbar-user">
+            <div class="topbar-user-copy">
+              <strong>{{ currentUserName }}</strong>
+              <span>{{ currentUserRole }}</span>
+            </div>
+            <span class="topbar-avatar">{{ currentUserInitials }}</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <div class="app-main-inner">
+          <RouterView />
+        </div>
+      </main>
+    </div>
   </div>
 </template>
