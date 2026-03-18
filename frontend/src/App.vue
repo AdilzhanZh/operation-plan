@@ -84,12 +84,6 @@ async function logout() {
               <span>{{ tr('Панель координации и контроля', 'Үйлестіру және бақылау панелі') }}</span>
             </span>
           </RouterLink>
-
-          <div class="topbar-bubbles" aria-hidden="true">
-            <span class="topbar-bubble topbar-bubble-violet">AI</span>
-            <span class="topbar-bubble topbar-bubble-mint">PL</span>
-            <span class="topbar-bubble topbar-bubble-sand">KP</span>
-          </div>
         </div>
 
         <nav class="topbar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">

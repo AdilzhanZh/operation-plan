@@ -201,42 +201,6 @@ a {
   font-size: 0.8rem;
 }
 
-.topbar-bubbles {
-  display: inline-flex;
-  align-items: center;
-}
-
-.topbar-bubble {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  margin-left: -0.35rem;
-  border: 2px solid rgba(255, 255, 255, 0.92);
-  border-radius: 50%;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  color: #ffffff;
-  box-shadow: var(--shadow-soft);
-}
-
-.topbar-bubble:first-child {
-  margin-left: 0;
-}
-
-.topbar-bubble-violet {
-  background: linear-gradient(135deg, #8f88ff, #726deb);
-}
-
-.topbar-bubble-mint {
-  background: linear-gradient(135deg, #8be7d4, #53cdb5);
-}
-
-.topbar-bubble-sand {
-  background: linear-gradient(135deg, #ffc79a, #f0a96a);
-}
-
 .topbar-nav {
   display: flex;
   align-items: center;
