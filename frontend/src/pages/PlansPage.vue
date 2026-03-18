@@ -44,6 +44,8 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const selectedResponsibleFilter = ref('')
 const selectedDirectionFilter = ref('')
+const reportFilterModalOpen = ref(false)
+const reportExportMenuOpen = ref(false)
 const activeViewTab = ref('plans')
 const tabTransitionName = ref('plans-slide-left')
 const reportModalOpen = ref(false)
@@ -84,6 +86,17 @@ const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
 const activeHistoryReport = computed(() => reportsHistoryItems.value.find((item) => item.id === historyEditReportId.value) ?? null)
 const activeHistoryReviewReport = computed(() => reportsHistoryItems.value.find((item) => item.id === historyReviewReportId.value) ?? null)
+const reportFilters = ref(createDefaultReportFilters())
+const reportFilterDraft = ref(createDefaultReportFilters())
+const reportStatusOptions = [
+  { value: 'pending', ru: 'На проверке', kz: 'Тексерісте' },
+  { value: 'completed', ru: 'Принято', kz: 'Қабылданды' },
+  { value: 'rejected', ru: 'Отклонено', kz: 'Қабылданбаған' },
+  { value: 'without_report', ru: 'Без отчета', kz: 'Есеп жоқ' },
+  { value: 'in_progress', ru: 'В работе', kz: 'Жұмыста' },
+  { value: 'overdue', ru: 'Просрочено', kz: 'Мерзімі өткен' },
+  { value: 'upcoming', ru: 'Срок еще не наступил', kz: 'Уақыты әлі келген жоқ' }
+]
 const activePanelSubtitle = computed(() => {
   if (activeViewTab.value === 'reports') {
     return tr(
@@ -117,7 +130,75 @@ const visibleRows = computed(() => {
 })
 const hasRows = computed(() => rows.value.length > 0)
 const hasVisibleRows = computed(() => visibleRows.value.length > 0)
+const reportBaseRows = computed(() => rows.value.filter((row) => String(row?.schedule_status ?? '').trim().toLowerCase() !== 'not_filled'))
+const hasReportBaseRows = computed(() => reportBaseRows.value.length > 0)
+const hasVisibleReportRows = computed(() => visibleReportRows.value.length > 0)
+const allReportStatusValues = computed(() => reportStatusOptions.map((option) => option.value))
+const reportStatusSelectionCount = computed(() => {
+  const selected = new Set((reportFilterDraft.value.statuses ?? []).map((value) => String(value)))
+  return allReportStatusValues.value.filter((value) => selected.has(value)).length
+})
+const allReportResponsibleIds = computed(() => prorectors.value.map((item) => String(item.id)))
+const reportResponsibleSelectionCount = computed(() => {
+  const selected = new Set((reportFilterDraft.value.responsible_ids ?? []).map((value) => String(value)))
+  return allReportResponsibleIds.value.filter((id) => selected.has(id)).length
+})
+const visibleReportRows = computed(() => {
+  let filtered = reportBaseRows.value
+  const filters = reportFilters.value
+  const selectedStatuses = new Set((filters.statuses ?? []).map((value) => String(value).trim()).filter(Boolean))
+  const selectedDirections = new Set((filters.directions ?? []).map((value) => String(value).trim()).filter(Boolean))
+  const selectedResponsibleIDs = new Set((filters.responsible_ids ?? []).map((value) => String(value).trim()).filter(Boolean))
+  const periodFrom = parseISODate(filters.period_from, false)
+  const periodTo = parseISODate(filters.period_to, true)
+
+  const includeWithoutReport = selectedStatuses.has('without_report')
+
+  if (selectedStatuses.size === 0) {
+    filtered = filtered.filter((row) => hasIndicatorReport(row))
+  } else {
+    filtered = filtered.filter((row) => {
+      if (!includeWithoutReport && !hasIndicatorReport(row)) {
+        return false
+      }
+      for (const status of selectedStatuses) {
+        if (matchesReportStatusFilter(row, status)) {
+          return true
+        }
+      }
+      return false
+    })
+  }
+
+  if (selectedDirections.size > 0) {
+    filtered = filtered.filter((row) => selectedDirections.has(String(row.direction ?? '').trim()))
+  }
+
+  if (selectedResponsibleIDs.size > 0) {
+    filtered = filtered.filter((row) => {
+      const ids = Array.isArray(row.responsible_user_ids) ? row.responsible_user_ids : []
+      return ids.some((id) => selectedResponsibleIDs.has(String(id)))
+    })
+  }
+
+  if (periodFrom || periodTo) {
+    filtered = filtered.filter((row) => matchesReportPeriodFilter(row, periodFrom, periodTo))
+  }
+
+  return filtered
+})
+const activeVisibleCount = computed(() => (activeViewTab.value === 'reports' ? visibleReportRows.value.length : visibleRows.value.length))
 const activeRowEdit = computed(() => rows.value.find((item) => item.indicator_id === rowEditIndicatorId.value) ?? null)
+
+function createDefaultReportFilters() {
+  return {
+    statuses: [],
+    responsible_ids: [],
+    directions: [],
+    period_from: '',
+    period_to: ''
+  }
+}
 
 function clearMessages() {
   errorMessage.value = ''
@@ -225,6 +306,7 @@ function setActiveViewTab(tab) {
   const currentIndex = activeViewTab.value === 'reports' ? 1 : 0
   const nextIndex = tab === 'reports' ? 1 : 0
   tabTransitionName.value = nextIndex > currentIndex ? 'plans-slide-left' : 'plans-slide-right'
+  reportExportMenuOpen.value = false
   activeViewTab.value = tab
 }
 
@@ -269,6 +351,47 @@ function parseISODate(value, endOfDay = false) {
     return new Date(year, month - 1, day, 23, 59, 59, 999)
   }
   return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function matchesReportStatusFilter(row, status) {
+  const reportStatus = String(row?.report_status ?? '').trim().toLowerCase()
+  const scheduleStatus = String(row?.schedule_status ?? '').trim().toLowerCase()
+
+  switch (status) {
+    case 'pending':
+    case 'completed':
+    case 'rejected':
+      return reportStatus === status
+    case 'without_report':
+      return reportStatus === ''
+    case 'overdue':
+    case 'in_progress':
+    case 'upcoming':
+    case 'not_filled':
+      return scheduleStatus === status
+    default:
+      return true
+  }
+}
+
+function hasIndicatorReport(row) {
+  return String(row?.report_status ?? '').trim() !== ''
+}
+
+function matchesReportPeriodFilter(row, periodFrom, periodTo) {
+  const startDate = parseISODate(row?.execution_start_date, false)
+  const endDate = parseISODate(row?.execution_end_date, true)
+
+  if (!startDate || !endDate) {
+    return false
+  }
+  if (periodFrom && endDate < periodFrom) {
+    return false
+  }
+  if (periodTo && startDate > periodTo) {
+    return false
+  }
+  return true
 }
 
 function formatRemainingTime(row) {
@@ -494,6 +617,389 @@ function reportStatusClass(status) {
   return 'report-status-pending'
 }
 
+function reportFilterStatusLabel(status) {
+  switch (status) {
+    case 'pending':
+      return tr('На проверке', 'Тексерісте')
+    case 'completed':
+      return tr('Принято', 'Қабылданды')
+    case 'rejected':
+      return tr('Отклонено', 'Қабылданбаған')
+    case 'without_report':
+      return tr('Без отчета', 'Есеп жоқ')
+    case 'overdue':
+      return tr('Просрочено', 'Мерзімі өткен')
+    case 'in_progress':
+      return tr('В работе', 'Жұмыста')
+    case 'upcoming':
+      return tr('Срок еще не наступил', 'Уақыты әлі келген жоқ')
+    case 'not_filled':
+      return tr('Не заполнено', 'Толтырылмаған')
+    default:
+      return tr('Все статусы', 'Барлық мәртебелер')
+  }
+}
+
+function copyReportFilters(filters) {
+  return {
+    statuses: Array.isArray(filters?.statuses)
+      ? filters.statuses.map((value) => String(value).trim()).filter((value) => value && value !== 'not_filled')
+      : [],
+    responsible_ids: Array.isArray(filters?.responsible_ids) ? [...filters.responsible_ids] : [],
+    directions: Array.isArray(filters?.directions) ? [...filters.directions] : [],
+    period_from: String(filters?.period_from ?? ''),
+    period_to: String(filters?.period_to ?? '')
+  }
+}
+
+function selectAllReportResponsibles() {
+  reportFilterDraft.value.responsible_ids = [...allReportResponsibleIds.value]
+}
+
+function clearReportResponsibles() {
+  reportFilterDraft.value.responsible_ids = []
+}
+
+function selectAllReportStatuses() {
+  reportFilterDraft.value.statuses = [...allReportStatusValues.value]
+}
+
+function clearReportStatuses() {
+  reportFilterDraft.value.statuses = []
+}
+
+function openReportFilterModal() {
+  if (!isAdmin.value) {
+    return
+  }
+  clearMessages()
+  reportExportMenuOpen.value = false
+  reportFilterDraft.value = copyReportFilters(reportFilters.value)
+  reportFilterModalOpen.value = true
+}
+
+function closeReportFilterModal() {
+  reportFilterModalOpen.value = false
+}
+
+function resetReportFilters() {
+  reportFilterDraft.value = createDefaultReportFilters()
+}
+
+function applyReportFilters() {
+  const from = parseISODate(reportFilterDraft.value.period_from, false)
+  const to = parseISODate(reportFilterDraft.value.period_to, true)
+  if (from && to && from > to) {
+    errorMessage.value = tr('Начало периода не может быть позже окончания', 'Период басы аяқталу күнінен кейін болмауы керек')
+    return
+  }
+  reportFilters.value = copyReportFilters(reportFilterDraft.value)
+  reportFilterModalOpen.value = false
+}
+
+function toggleReportExportMenu() {
+  if (!isAdmin.value) {
+    return
+  }
+  clearMessages()
+  reportExportMenuOpen.value = !reportExportMenuOpen.value
+}
+
+function escapeHTML(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function htmlizeMultiline(value) {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) {
+    return '—'
+  }
+  return escapeHTML(normalized).replaceAll('\n', '<br>')
+}
+
+function buildExportIndicatorText(row) {
+  const indicator = String(row?.development_indicator ?? '').trim() || '—'
+  const plannedValue = formatPlannedValue(row?.planned_value, row?.measurement_unit || row?.unit)
+  if (!plannedValue || plannedValue === '—') {
+    return indicator
+  }
+  return `${indicator}\n(${plannedValue})`
+}
+
+function csvEscape(value) {
+  const normalized = String(value ?? '').replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+  return `"${normalized.replaceAll('"', '""')}"`
+}
+
+function buildReportsExportCSV() {
+  const header = [
+    '№',
+    tr('Индикатор', 'Индикатор'),
+    tr('Мероприятия по достижению индикатора', 'Индикаторға қол жеткізу бойынша іс-шаралар'),
+    tr('Срок исполнения', 'Орындау мерзімі'),
+    tr('Ответственные', 'Жауаптылар')
+  ]
+
+  const lines = [
+    header.map(csvEscape).join(';'),
+    ...visibleReportRows.value.map((row, index) => [
+      index + 1,
+      buildExportIndicatorText(row),
+      textPreview(row.report_preview),
+      formatDateRange(row) || '—',
+      textPreview(row.responsible)
+    ].map(csvEscape).join(';'))
+  ]
+
+  return `\uFEFF${lines.join('\r\n')}`
+}
+
+function escapeRTF(value) {
+  const source = String(value ?? '').replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+  let result = ''
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    const code = source.charCodeAt(index)
+
+    if (char === '\\') {
+      result += '\\\\'
+      continue
+    }
+    if (char === '{') {
+      result += '\\{'
+      continue
+    }
+    if (char === '}') {
+      result += '\\}'
+      continue
+    }
+    if (char === '\n') {
+      result += '\\line '
+      continue
+    }
+    if (code > 127) {
+      const signedCode = code > 0x7fff ? code - 0x10000 : code
+      result += `\\u${signedCode}?`
+      continue
+    }
+
+    result += char
+  }
+
+  return result
+}
+
+function buildRTFTableRow(cells, cellEdges, { header = false } = {}) {
+  const edgeMarkup = cellEdges.map((edge) => `\\cellx${edge}`).join('')
+  const cellContent = cells
+    .map((cell) => `${header ? '\\b ' : ''}\\intbl ${escapeRTF(cell)}${header ? '\\b0 ' : ''}\\cell`)
+    .join('')
+
+  return `\\trowd\\trgaph108\\trleft0${edgeMarkup}${cellContent}\\row\n`
+}
+
+function buildReportsExportRTF() {
+  const generatedAt = new Date().toLocaleString(tr('ru-RU', 'kk-KZ'))
+  const filterLines = currentReportFilterSummary()
+    .map((item) => `\\bullet\\tab ${escapeRTF(item)}\\par`)
+    .join('\n')
+
+  const cellEdges = [700, 6500, 11000, 13200, 17200]
+  const headerRow = buildRTFTableRow([
+    '№',
+    tr('Индикатор', 'Индикатор'),
+    tr('Мероприятия по достижению индикатора', 'Индикаторға қол жеткізу бойынша іс-шаралар'),
+    tr('Срок исполнения', 'Орындау мерзімі'),
+    tr('Ответственные', 'Жауаптылар')
+  ], cellEdges, { header: true })
+
+  const bodyRows = visibleReportRows.value
+    .map((row, index) => buildRTFTableRow([
+      String(index + 1),
+      buildExportIndicatorText(row),
+      textPreview(row.report_preview),
+      formatDateRange(row) || '—',
+      textPreview(row.responsible)
+    ], cellEdges))
+    .join('')
+
+  return `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\paperw16840\\paperh11907\\landscape\\margl720\\margr720\\margt720\\margb720
+\\fs22
+\\b ${escapeRTF(tr('Планы и отчеты: отчеты', 'Жоспарлар мен есептер: есептер'))}\\b0\\par
+${escapeRTF(tr('Год', 'Жыл'))}: ${escapeRTF(selectedYear.value)} \\bullet ${escapeRTF(tr('Сформировано', 'Қалыптастырылған уақыт'))}: ${escapeRTF(generatedAt)}\\par
+\\par
+${filterLines}
+\\par
+${headerRow}${bodyRows}
+}`
+}
+
+function currentReportFilterSummary() {
+  const parts = []
+  const filters = reportFilters.value
+
+  if ((filters.statuses ?? []).length > 0) {
+    parts.push(`${tr('Статус', 'Мәртебе')}: ${(filters.statuses ?? []).map((status) => reportFilterStatusLabel(status)).join(', ')}`)
+  }
+
+  if ((filters.responsible_ids ?? []).length > 0) {
+    const responsibleNames = (filters.responsible_ids ?? [])
+      .map((id) => prorectors.value.find((item) => String(item.id) === String(id)))
+      .filter(Boolean)
+      .map((item) => item.full_name)
+    if (responsibleNames.length > 0) {
+      parts.push(`${tr('Ответственные', 'Жауаптылар')}: ${responsibleNames.join(', ')}`)
+    }
+  }
+
+  if ((filters.directions ?? []).length > 0) {
+    const directionNames = (filters.directions ?? [])
+      .map((value) => directionOptions.find((item) => item.value === value))
+      .filter(Boolean)
+      .map((item) => tr(item.ru, item.kz))
+    if (directionNames.length > 0) {
+      parts.push(`${tr('Направление', 'Бағыт')}: ${directionNames.join(', ')}`)
+    }
+  }
+
+  if (filters.period_from || filters.period_to) {
+    const from = filters.period_from ? formatISODateToDMY(filters.period_from) : '—'
+    const to = filters.period_to ? formatISODateToDMY(filters.period_to) : '—'
+    parts.push(`${tr('Период', 'Период')}: ${from} - ${to}`)
+  }
+
+  return parts.length > 0 ? parts : [tr('Без фильтров', 'Сүзгісіз')]
+}
+
+function buildReportsExportHTML() {
+  const rowsToExport = visibleReportRows.value
+  const generatedAt = new Date().toLocaleString(tr('ru-RU', 'kk-KZ'))
+  const tableRows = rowsToExport.map((row, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${htmlizeMultiline(buildExportIndicatorText(row))}</td>
+      <td>${htmlizeMultiline(row.report_preview)}</td>
+      <td>${htmlizeMultiline(formatDateRange(row))}</td>
+      <td>${htmlizeMultiline(row.responsible)}</td>
+    </tr>
+  `).join('')
+
+  const summaryRows = currentReportFilterSummary()
+    .map((item) => `<li>${escapeHTML(item)}</li>`)
+    .join('')
+
+  return `<!DOCTYPE html>
+<html lang="${tr('ru', 'kk')}">
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHTML(tr('Экспорт отчетов', 'Есептер экспорты'))}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; color: #10212a; margin: 24px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .meta { margin: 0 0 18px; color: #52606d; font-size: 13px; }
+    .filters { margin: 0 0 18px; padding-left: 18px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border: 1px solid #cfd9e3; padding: 10px; vertical-align: top; text-align: left; font-size: 12px; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    th { background: #f4eee4; color: #445e74; text-transform: uppercase; letter-spacing: 0.04em; }
+    .col-num { width: 48px; }
+    .col-deadline { width: 140px; }
+    .col-responsible { width: 180px; }
+    @media print {
+      body { margin: 10mm; }
+    }
+  </style>
+</head>
+<body>
+  <h1>${escapeHTML(tr('Планы и отчеты: отчеты', 'Жоспарлар мен есептер: есептер'))}</h1>
+  <p class="meta">${escapeHTML(tr('Год', 'Жыл'))}: ${escapeHTML(selectedYear.value)} • ${escapeHTML(tr('Сформировано', 'Қалыптастырылған уақыт'))}: ${escapeHTML(generatedAt)}</p>
+  <ul class="filters">${summaryRows}</ul>
+  <table>
+    <thead>
+      <tr>
+        <th class="col-num">№</th>
+        <th>${escapeHTML(tr('Индикатор', 'Индикатор'))}</th>
+        <th>${escapeHTML(tr('Мероприятия по достижению индикатора', 'Индикаторға қол жеткізу бойынша іс-шаралар'))}</th>
+        <th class="col-deadline">${escapeHTML(tr('Срок исполнения', 'Орындау мерзімі'))}</th>
+        <th class="col-responsible">${escapeHTML(tr('Ответственные', 'Жауаптылар'))}</th>
+      </tr>
+    </thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+</body>
+</html>`
+}
+
+function downloadStringFile(content, mimeType, fileName) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+function exportReports(format) {
+  if (!isAdmin.value) {
+    return
+  }
+
+  const rowsToExport = visibleReportRows.value
+  if (rowsToExport.length === 0) {
+    errorMessage.value = tr('Нет данных для выгрузки', 'Жүктеуге дерек жоқ')
+    reportExportMenuOpen.value = false
+    return
+  }
+
+  clearMessages()
+  const html = buildReportsExportHTML()
+  const timeSuffix = selectedYear.value || new Date().getFullYear()
+
+  if (format === 'doc') {
+    const rtf = buildReportsExportRTF()
+    downloadStringFile(rtf, 'application/rtf;charset=utf-8', `plans-reports-${timeSuffix}.rtf`)
+    successMessage.value = tr('Файл RTF выгружен', 'RTF файлы жүктелді')
+    reportExportMenuOpen.value = false
+    return
+  }
+
+  if (format === 'excel') {
+    const csv = buildReportsExportCSV()
+    downloadStringFile(csv, 'text/csv;charset=utf-8', `plans-reports-${timeSuffix}.csv`)
+    successMessage.value = tr('Файл CSV для Excel выгружен', 'Excel үшін CSV файлы жүктелді')
+    reportExportMenuOpen.value = false
+    return
+  }
+
+  if (format === 'pdf') {
+    const printWindow = window.open('', '_blank', 'width=1200,height=900')
+    if (!printWindow) {
+      errorMessage.value = tr('Не удалось открыть окно печати PDF', 'PDF басып шығару терезесін ашу мүмкін болмады')
+      reportExportMenuOpen.value = false
+      return
+    }
+
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.onload = () => {
+      printWindow.print()
+    }
+    successMessage.value = tr('Открыто окно сохранения в PDF', 'PDF сақтауға арналған терезе ашылды')
+  }
+
+  reportExportMenuOpen.value = false
+}
+
 function formatDateTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -535,6 +1041,7 @@ async function openReportsHistoryModal(row) {
   }
 
   clearMessages()
+  reportExportMenuOpen.value = false
   reportsHistoryIndicator.value = row
   reportsHistoryModalOpen.value = true
   await loadReportsHistory(row.indicator_id)
@@ -776,7 +1283,7 @@ onBeforeUnmount(() => {
         <p>{{ tr('Раздел синхронизирован только с индикаторами текущего года.', 'Бұл бөлім тек ағымдағы жыл индикаторларымен синхрондалады.') }}</p>
       </div>
 
-      <label v-if="isAdmin" class="plans-filter">
+      <label v-if="activeViewTab === 'plans' && isAdmin" class="plans-filter">
         <span>{{ tr('Ответственные', 'Жауаптылар') }}</span>
         <select v-model="selectedResponsibleFilter">
           <option value="">{{ tr('Все', 'Барлығы') }}</option>
@@ -786,7 +1293,7 @@ onBeforeUnmount(() => {
         </select>
       </label>
 
-      <label class="plans-filter">
+      <label v-if="activeViewTab === 'plans'" class="plans-filter">
         <span>{{ tr('Направление', 'Бағыт') }}</span>
         <select v-model="selectedDirectionFilter">
           <option value="">{{ tr('Все направления', 'Барлық бағыттар') }}</option>
@@ -798,7 +1305,7 @@ onBeforeUnmount(() => {
 
       <div class="plans-visible-card">
         <span class="kicker">{{ tr('Отображено', 'Көрсетілген') }}</span>
-        <strong>{{ visibleRows.length }}</strong>
+        <strong>{{ activeVisibleCount }}</strong>
       </div>
     </div>
 
@@ -811,7 +1318,24 @@ onBeforeUnmount(() => {
           <h3 class="panel-title">{{ tr('Операционный план', 'Операциялық жоспар') }}</h3>
           <p class="panel-subtitle">{{ activePanelSubtitle }}</p>
         </div>
-        <span class="kicker">{{ visibleRows.length }} {{ tr('индикаторов', 'индикатор') }}</span>
+        <div class="plans-header-actions">
+          <div v-if="isAdmin && activeViewTab === 'reports'" class="plans-reports-actions">
+            <button class="btn btn-ghost plans-toolbar-btn" type="button" @click="openReportFilterModal">
+              {{ tr('Фильтр', 'Сүзгі') }}
+            </button>
+            <div class="plans-export-wrap">
+              <button class="btn btn-primary plans-toolbar-btn" type="button" @click="toggleReportExportMenu">
+                {{ tr('Выгрузить', 'Жүктеу') }}
+              </button>
+              <div v-if="reportExportMenuOpen" class="plans-export-menu">
+                <button class="btn btn-ghost plans-export-option" type="button" @click="exportReports('doc')">RTF</button>
+                <button class="btn btn-ghost plans-export-option" type="button" @click="exportReports('excel')">EXCEL</button>
+                <button class="btn btn-ghost plans-export-option" type="button" @click="exportReports('pdf')">PDF</button>
+              </div>
+            </div>
+          </div>
+          <span class="kicker">{{ activeVisibleCount }} {{ tr('индикаторов', 'индикатор') }}</span>
+        </div>
       </div>
 
       <div class="plans-card-tabs" :class="{ 'is-single': !canUseReportsTab }">
@@ -928,17 +1452,30 @@ onBeforeUnmount(() => {
           <div v-else-if="!hasRows" class="empty-state">
             {{ tr(`По году ${selectedYear} нет индикаторов.`, `${selectedYear} жылына индикаторлар табылмады.`) }}
           </div>
+          <div v-else-if="!hasReportBaseRows" class="empty-state">
+            {{
+              tr(
+                'Для раздела отчётов пока нет полностью заполненных индикаторов.',
+                'Есептер бөлімі үшін әзірге толық толтырылған индикаторлар жоқ.'
+              )
+            }}
+          </div>
+          <div v-else-if="!hasVisibleReportRows" class="empty-state">
+            {{ tr('По выбранным фильтрам индикаторы не найдены.', 'Таңдалған сүзгілер бойынша индикатор табылмады.') }}
+          </div>
           <div v-else class="table-wrapper">
             <table class="plan-table plans-reports-table">
               <thead>
                 <tr>
                   <th class="col-number">№</th>
                   <th>{{ tr('Индикатор', 'Индикатор') }}</th>
-                  <th class="col-action">{{ tr('Действие', 'Әрекет') }}</th>
+                  <th class="col-reports-preview">{{ tr('Мероприятия по достижению индикатора', 'Индикаторға қол жеткізу бойынша іс-шаралар') }}</th>
+                  <th class="col-deadline-compact">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+                  <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, index) in rows" :key="`report-list-${row.indicator_id}`">
+                <tr v-for="(row, index) in visibleReportRows" :key="`report-list-${row.indicator_id}`">
                   <td class="number-cell" data-label="№">{{ index + 1 }}</td>
                   <td :data-label="tr('Индикатор', 'Индикатор')">
                     <div
@@ -952,18 +1489,52 @@ onBeforeUnmount(() => {
                     >
                       <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                     </div>
-                    <span class="planned-value-chip">
-                      {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                    </span>
+                    <div class="plans-report-row-meta">
+                      <span class="planned-value-chip">
+                        {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                      </span>
+                      <button
+                        class="btn btn-ghost plans-inline-icon-btn"
+                        type="button"
+                        :aria-label="tr('Открыть отчеты', 'Есептерді ашу')"
+                        @click="openReportsHistoryModal(row)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M9 6h8m-8 6h8m-8 6h5M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
-                  <td :data-label="tr('Действие', 'Әрекет')">
-                    <button
-                      class="btn btn-primary plans-history-btn"
-                      type="button"
-                      @click="openReportsHistoryModal(row)"
+                  <td :data-label="tr('Мероприятия по достижению индикатора', 'Индикаторға қол жеткізу бойынша іс-шаралар')">
+                    <div
+                      class="table-text-preview text-pretty reports-preview-cell"
+                      :class="{ 'is-empty': textPreview(row.report_preview) === '—' }"
+                      role="button"
+                      tabindex="0"
+                      @click="openReadModal(tr('Тексты отчетов', 'Есеп мәтіндері'), row.report_preview)"
+                      @keyup.enter="openReadModal(tr('Тексты отчетов', 'Есеп мәтіндері'), row.report_preview)"
+                      @keyup.space.prevent="openReadModal(tr('Тексты отчетов', 'Есеп мәтіндері'), row.report_preview)"
                     >
-                      {{ tr('Открыть отчеты', 'Есептерді ашу') }}
-                    </button>
+                      <span class="table-text-preview-content">{{ textPreview(row.report_preview) }}</span>
+                    </div>
+                  </td>
+                  <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
+                    <div class="plans-schedule-card plans-schedule-card-compact">
+                      <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
+                    </div>
+                  </td>
+                  <td :data-label="tr('Ответственные', 'Жауаптылар')">
+                    <div
+                      class="table-text-preview text-pretty responsible-preview"
+                      :class="{ 'is-empty': textPreview(row.responsible) === '—' }"
+                      role="button"
+                      tabindex="0"
+                      @click="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                      @keyup.enter="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                      @keyup.space.prevent="openReadModal(tr('Ответственные', 'Жауаптылар'), row.responsible)"
+                    >
+                      <span class="table-text-preview-content">{{ textPreview(row.responsible) }}</span>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -972,6 +1543,125 @@ onBeforeUnmount(() => {
         </div>
       </Transition>
     </section>
+
+    <div v-if="reportFilterModalOpen" class="modal-backdrop" @click.self="closeReportFilterModal">
+      <div class="modal-card plans-modal plans-filter-modal">
+        <h3 class="modal-title">{{ tr('Фильтры для отчётов', 'Есептерге арналған сүзгілер') }}</h3>
+        <p class="modal-subtitle">
+          {{ tr('Статус, ответственные, направление и период влияют на таблицу и выгрузку.', 'Мәртебе, жауаптылар, бағыт және период кесте мен экспортқа бірдей әсер етеді.') }}
+        </p>
+
+        <div class="row-edit-grid">
+          <label class="modal-label">
+            <span>{{ tr('Статус', 'Мәртебе') }}</span>
+            <div class="report-filter-head">
+              <div class="report-filter-actions">
+                <button class="btn btn-ghost report-filter-action-btn" type="button" @click="selectAllReportStatuses">
+                  {{ tr('Все', 'Барлығы') }}
+                </button>
+                <button class="btn btn-ghost report-filter-action-btn" type="button" @click="clearReportStatuses">
+                  {{ tr('Снять', 'Тазарту') }}
+                </button>
+              </div>
+              <span class="report-filter-meta">
+                {{ tr('Выбрано:', 'Таңдалды:') }} {{ reportStatusSelectionCount }} / {{ reportStatusOptions.length }}
+              </span>
+            </div>
+            <div class="report-filter-group">
+              <label
+                v-for="option in reportStatusOptions"
+                :key="`report-status-${option.value}`"
+                class="report-filter-option"
+                :class="{ 'is-selected': reportFilterDraft.statuses.includes(option.value) }"
+              >
+                <input
+                  v-model="reportFilterDraft.statuses"
+                  type="checkbox"
+                  :value="option.value"
+                />
+                <span>{{ tr(option.ru, option.kz) }}</span>
+              </label>
+            </div>
+          </label>
+
+          <label class="modal-label">
+            <span>{{ tr('Ответственные', 'Жауаптылар') }}</span>
+            <div class="report-filter-head">
+              <div class="report-filter-actions">
+                <button class="btn btn-ghost report-filter-action-btn" type="button" @click="selectAllReportResponsibles">
+                  {{ tr('Все', 'Барлығы') }}
+                </button>
+                <button class="btn btn-ghost report-filter-action-btn" type="button" @click="clearReportResponsibles">
+                  {{ tr('Снять', 'Тазарту') }}
+                </button>
+              </div>
+              <span class="report-filter-meta">
+                {{ tr('Выбрано:', 'Таңдалды:') }} {{ reportResponsibleSelectionCount }} / {{ prorectors.length }}
+              </span>
+            </div>
+            <div class="report-filter-group report-filter-group-scroll">
+              <label
+                v-for="prorector in prorectors"
+                :key="`report-filter-${prorector.id}`"
+                class="report-filter-option"
+                :class="{ 'is-selected': reportFilterDraft.responsible_ids.includes(String(prorector.id)) }"
+              >
+                <input
+                  v-model="reportFilterDraft.responsible_ids"
+                  type="checkbox"
+                  :value="String(prorector.id)"
+                />
+                <span>{{ prorector.full_name }}</span>
+              </label>
+            </div>
+          </label>
+
+          <label class="modal-label">
+            <span>{{ tr('Направление', 'Бағыт') }}</span>
+            <div class="report-filter-group">
+              <label
+                v-for="option in directionOptions"
+                :key="`report-direction-${option.value}`"
+                class="report-filter-option"
+                :class="{ 'is-selected': reportFilterDraft.directions.includes(option.value) }"
+              >
+                <input
+                  v-model="reportFilterDraft.directions"
+                  type="checkbox"
+                  :value="option.value"
+                />
+                <span>{{ tr(option.ru, option.kz) }}</span>
+              </label>
+            </div>
+          </label>
+
+          <div class="row-edit-dates">
+            <div class="date-range-grid">
+              <label class="date-field">
+                <span>{{ tr('Период с', 'Период басы') }}</span>
+                <input v-model="reportFilterDraft.period_from" class="plans-input" type="date" />
+              </label>
+              <label class="date-field">
+                <span>{{ tr('Период по', 'Период соңы') }}</span>
+                <input v-model="reportFilterDraft.period_to" class="plans-input" type="date" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" @click="resetReportFilters">
+            {{ tr('Сбросить', 'Тазарту') }}
+          </button>
+          <button class="btn btn-ghost" type="button" @click="closeReportFilterModal">
+            {{ tr('Отмена', 'Бас тарту') }}
+          </button>
+          <button class="btn btn-primary" type="button" @click="applyReportFilters">
+            {{ tr('Применить', 'Қолдану') }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="reportsHistoryModalOpen" class="modal-backdrop" @click.self="closeReportsHistoryModal">
       <div class="modal-card plans-modal plans-history-modal">
@@ -1421,6 +2111,48 @@ onBeforeUnmount(() => {
   min-height: 6.4rem;
 }
 
+.plans-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-left: auto;
+}
+
+.plans-reports-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.plans-toolbar-btn {
+  min-width: 8.5rem;
+  justify-content: center;
+}
+
+.plans-export-wrap {
+  position: relative;
+}
+
+.plans-export-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 12;
+  min-width: 8.5rem;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 34px rgba(16, 33, 42, 0.12);
+  backdrop-filter: blur(12px);
+}
+
+.plans-export-option {
+  justify-content: center;
+}
+
 .plans-slide-left-enter-active,
 .plans-slide-left-leave-active,
 .plans-slide-right-enter-active,
@@ -1453,7 +2185,7 @@ onBeforeUnmount(() => {
 }
 
 .plans-reports-table {
-  min-width: 860px;
+  min-width: 1180px;
 }
 
 .col-number {
@@ -1468,8 +2200,12 @@ onBeforeUnmount(() => {
   width: 15rem;
 }
 
-.col-action {
-  width: 11rem;
+.col-reports-preview {
+  width: 23rem;
+}
+
+.col-deadline-compact {
+  width: 12.5rem;
 }
 
 .number-cell {
@@ -1589,6 +2325,44 @@ onBeforeUnmount(() => {
   white-space: normal;
 }
 
+.plans-report-row-meta {
+  margin-top: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.plans-inline-icon-btn {
+  width: 2.45rem;
+  min-width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 999px;
+  padding: 0;
+  justify-content: center;
+  border: 1px solid rgba(17, 120, 111, 0.16);
+  background: rgba(233, 245, 243, 0.72);
+  color: #0f5e57;
+}
+
+.plans-inline-icon-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.reports-preview-cell .table-text-preview-content {
+  -webkit-line-clamp: 5;
+}
+
+.plans-schedule-card-compact {
+  gap: 0.3rem;
+}
+
 .cell-note {
   margin: 0.6rem 0 0;
   color: var(--muted);
@@ -1617,6 +2391,93 @@ onBeforeUnmount(() => {
 
 .plans-history-modal {
   width: min(900px, 100%);
+}
+
+.plans-filter-modal {
+  width: min(760px, 100%);
+}
+
+.report-filter-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.report-filter-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-top: 0.15rem;
+}
+
+.report-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.report-filter-action-btn {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+.report-filter-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.report-filter-group-scroll {
+  max-height: min(38vh, 320px);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.report-filter-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.72rem 0.82rem;
+  border: 1px solid rgba(16, 33, 42, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.report-filter-option:hover {
+  border-color: rgba(17, 120, 111, 0.38);
+  box-shadow: 0 8px 24px rgba(15, 31, 41, 0.08);
+}
+
+.report-filter-option.is-selected {
+  border-color: rgba(17, 120, 111, 0.52);
+  background: linear-gradient(145deg, rgba(17, 120, 111, 0.12), rgba(17, 120, 111, 0.05));
+}
+
+.report-filter-option input {
+  width: 1.02rem;
+  height: 1.02rem;
+  margin-top: 0.08rem;
+  accent-color: var(--accent);
+}
+
+.report-filter-option span {
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .report-filter-head {
+    align-items: flex-start;
+  }
+
+  .report-filter-meta {
+    width: 100%;
+  }
 }
 
 .plans-edit-report-modal,
@@ -1849,6 +2710,11 @@ onBeforeUnmount(() => {
     align-items: stretch;
   }
 
+  .plans-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .plans-card-tabs {
     max-width: 100%;
   }
@@ -1862,6 +2728,22 @@ onBeforeUnmount(() => {
 @media (max-width: 980px) {
   .plans-table-card {
     padding: 0.9rem;
+  }
+
+  .plans-header-actions,
+  .plans-reports-actions {
+    flex-wrap: wrap;
+  }
+
+  .plans-toolbar-btn,
+  .plans-export-wrap {
+    width: 100%;
+  }
+
+  .plans-export-menu {
+    right: 0;
+    left: auto;
+    min-width: 100%;
   }
 
   .table-wrapper {

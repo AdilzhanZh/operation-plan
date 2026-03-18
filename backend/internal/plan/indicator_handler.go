@@ -40,6 +40,7 @@ type planIndicatorRow struct {
 	MeasurementUnit      string  `json:"measurement_unit"`
 	PlannedValue         string  `json:"planned_value"`
 	DevelopmentIndicator string  `json:"development_indicator"`
+	ReportPreview        string  `json:"report_preview"`
 	Activities           string  `json:"activities"`
 	ExecutionDeadline    string  `json:"execution_deadline"`
 	ExecutionStartDate   string  `json:"execution_start_date"`
@@ -254,6 +255,19 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 		       COALESCE(ppi.unit, ''),
 		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
+		       COALESCE((
+		           SELECT STRING_AGG(preview_entry.preview_text, E'\n\n' ORDER BY preview_entry.submitted_at DESC, preview_entry.id DESC)
+		           FROM (
+		               SELECT rs.id,
+		                      rs.submitted_at,
+		                      COALESCE(NULLIF(TRIM(submitter.full_name), ''), submitter.username, 'User') || E':\n' || COALESCE(rs.report_text, '') AS preview_text
+		               FROM report_submissions rs
+		               LEFT JOIN users submitter
+		                 ON submitter.id = rs.submitted_by
+		               WHERE rs.plan_item_id = pi.id
+		                 AND COALESCE(NULLIF(TRIM(rs.report_text), ''), '') <> ''
+		           ) preview_entry
+		       ), ''),
 		       COALESCE(pi.activities, ''),
 		       COALESCE(TO_CHAR(pi.execution_start_date, 'YYYY-MM-DD'), ''),
 		       COALESCE(TO_CHAR(pi.execution_end_date, 'YYYY-MM-DD'), ''),
@@ -329,6 +343,7 @@ func (h *Handler) listPlanIndicators(c *gin.Context) {
 			&item.Unit,
 			&item.PlannedValue,
 			&item.DevelopmentIndicator,
+			&item.ReportPreview,
 			&item.Activities,
 			&item.ExecutionStartDate,
 			&item.ExecutionEndDate,
