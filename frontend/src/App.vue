@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import LanguageSwitch from './components/LanguageSwitch.vue'
 import { useLocale } from './composables/useLocale'
@@ -12,6 +12,14 @@ const authStore = useAuthStore()
 const { tr } = useLocale()
 const profileMenuOpen = ref(false)
 const profileMenuRef = ref(null)
+const topbarNavRef = ref(null)
+const topbarNavIndicatorStyle = ref({
+  width: '0px',
+  transform: 'translate3d(0, 0, 0)',
+  opacity: '0'
+})
+let navIndicatorFrame = 0
+let navResizeObserver = null
 
 const navigation = computed(() => [
   { name: tr('Панель управления', 'Басқару панелі'), description: tr('Обзор статусов и сроков', 'Мәртебелер мен мерзімдер шолуы'), to: { name: 'dashboard' } },
@@ -78,6 +86,32 @@ function handleProfileMenuKeydown(event) {
   }
 }
 
+function updateTopbarNavIndicator() {
+  cancelAnimationFrame(navIndicatorFrame)
+  navIndicatorFrame = requestAnimationFrame(() => {
+    const navElement = topbarNavRef.value
+    if (!navElement) {
+      return
+    }
+
+    const activeLink = navElement.querySelector('.topbar-nav-link.router-link-active')
+    if (!activeLink) {
+      topbarNavIndicatorStyle.value = {
+        width: '0px',
+        transform: 'translate3d(0, 0, 0)',
+        opacity: '0'
+      }
+      return
+    }
+
+    topbarNavIndicatorStyle.value = {
+      width: `${activeLink.offsetWidth}px`,
+      transform: `translate3d(${activeLink.offsetLeft}px, 0, 0)`,
+      opacity: '1'
+    }
+  })
+}
+
 async function logout() {
   try {
     await logoutRequest()
@@ -93,12 +127,48 @@ async function logout() {
 onMounted(() => {
   document.addEventListener('click', handleProfileMenuClickOutside)
   document.addEventListener('keydown', handleProfileMenuKeydown)
+  window.addEventListener('resize', updateTopbarNavIndicator)
+  topbarNavRef.value?.addEventListener('scroll', updateTopbarNavIndicator, { passive: true })
+
+  if ('ResizeObserver' in window && topbarNavRef.value) {
+    navResizeObserver = new ResizeObserver(() => {
+      updateTopbarNavIndicator()
+    })
+    navResizeObserver.observe(topbarNavRef.value)
+  }
+
+  nextTick(() => {
+    updateTopbarNavIndicator()
+  })
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleProfileMenuClickOutside)
   document.removeEventListener('keydown', handleProfileMenuKeydown)
+  window.removeEventListener('resize', updateTopbarNavIndicator)
+  topbarNavRef.value?.removeEventListener('scroll', updateTopbarNavIndicator)
+  navResizeObserver?.disconnect()
+  cancelAnimationFrame(navIndicatorFrame)
 })
+
+watch(
+  () => route.fullPath,
+  () => {
+    nextTick(() => {
+      updateTopbarNavIndicator()
+    })
+  }
+)
+
+watch(
+  visibleNavigation,
+  () => {
+    nextTick(() => {
+      updateTopbarNavIndicator()
+    })
+  },
+  { deep: true }
+)
 </script>
 
 <template>
@@ -119,7 +189,8 @@ onBeforeUnmount(() => {
           </RouterLink>
         </div>
 
-        <nav class="topbar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">
+        <nav ref="topbarNavRef" class="topbar-nav" :aria-label="tr('Основная навигация', 'Негізгі навигация')">
+          <span class="topbar-nav-indicator" :style="topbarNavIndicatorStyle" aria-hidden="true"></span>
           <RouterLink
             v-for="item in visibleNavigation"
             :key="item.name"
