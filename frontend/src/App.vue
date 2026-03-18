@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import LanguageSwitch from './components/LanguageSwitch.vue'
 import { useLocale } from './composables/useLocale'
@@ -10,6 +10,8 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { tr } = useLocale()
+const profileMenuOpen = ref(false)
+const profileMenuRef = ref(null)
 
 const navigation = computed(() => [
   { name: tr('Панель управления', 'Басқару панелі'), description: tr('Обзор статусов и сроков', 'Мәртебелер мен мерзімдер шолуы'), to: { name: 'dashboard' } },
@@ -56,16 +58,48 @@ const currentUserInitials = computed(() => {
     .join('')
 })
 
+function closeProfileMenu() {
+  profileMenuOpen.value = false
+}
+
+function toggleProfileMenu() {
+  profileMenuOpen.value = !profileMenuOpen.value
+}
+
+function handleProfileMenuClickOutside(event) {
+  const menuElement = profileMenuRef.value
+  if (menuElement && !menuElement.contains(event.target)) {
+    closeProfileMenu()
+  }
+}
+
+function handleProfileMenuKeydown(event) {
+  if (event.key === 'Escape') {
+    closeProfileMenu()
+  }
+}
+
 async function logout() {
   try {
     await logoutRequest()
   } catch {
     // Local cleanup is still required when token is already expired.
   } finally {
+    closeProfileMenu()
     authStore.logout()
     router.push({ name: 'login' })
   }
 }
+
+onMounted(() => {
+  document.addEventListener('click', handleProfileMenuClickOutside)
+  document.addEventListener('keydown', handleProfileMenuKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleProfileMenuClickOutside)
+  document.removeEventListener('keydown', handleProfileMenuKeydown)
+})
 </script>
 
 <template>
@@ -97,18 +131,39 @@ async function logout() {
           </RouterLink>
         </nav>
 
-        <div class="topbar-meta">
-          <LanguageSwitch />
-          <button type="button" class="btn btn-secondary topbar-logout" @click="logout">
-            {{ tr('Выйти', 'Шығу') }}
+        <div ref="profileMenuRef" class="topbar-meta">
+          <button
+            type="button"
+            class="unstyled-button topbar-avatar-btn"
+            :class="{ 'is-open': profileMenuOpen }"
+            :aria-expanded="profileMenuOpen ? 'true' : 'false'"
+            :aria-label="tr('Открыть меню профиля', 'Профиль мәзірін ашу')"
+            @click="toggleProfileMenu"
+          >
+            <span class="topbar-avatar">{{ currentUserInitials }}</span>
           </button>
 
-          <div class="topbar-user">
-            <div class="topbar-user-copy">
-              <strong>{{ currentUserName }}</strong>
-              <span>{{ currentUserRole }}</span>
+          <div v-if="profileMenuOpen" class="topbar-profile-menu">
+            <div class="topbar-profile-card">
+              <div class="topbar-user-copy">
+                <strong>{{ currentUserName }}</strong>
+                <span>{{ currentUserRole }}</span>
+              </div>
+              <span class="topbar-avatar topbar-avatar-static">{{ currentUserInitials }}</span>
             </div>
-            <span class="topbar-avatar">{{ currentUserInitials }}</span>
+
+            <RouterLink :to="{ name: 'profile' }" class="btn btn-ghost topbar-profile-link" @click="closeProfileMenu">
+              {{ tr('Открыть профиль', 'Профильді ашу') }}
+            </RouterLink>
+
+            <div class="topbar-profile-section">
+              <span class="topbar-profile-label">{{ tr('Язык интерфейса', 'Интерфейс тілі') }}</span>
+              <LanguageSwitch />
+            </div>
+
+            <button type="button" class="btn btn-secondary topbar-menu-logout" @click="logout">
+              {{ tr('Выйти', 'Шығу') }}
+            </button>
           </div>
         </div>
       </header>
