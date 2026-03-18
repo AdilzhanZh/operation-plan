@@ -74,6 +74,10 @@ type reviewPlanIndicatorReportRequest struct {
 	ApprovalFormula string `json:"approval_formula"`
 }
 
+type updatePlanIndicatorReportRequest struct {
+	ReportText string `json:"report_text"`
+}
+
 // submitPlanIndicatorReport godoc
 // @Summary Submit indicator report
 // @Description Prorector submits report text and one or many files for assigned indicator. At least one file is required.
@@ -189,6 +193,64 @@ func (h *Handler) submitPlanIndicatorReport(c *gin.Context) {
 	}
 
 	c.JSON(201, item)
+}
+
+func (h *Handler) updatePlanIndicatorReport(c *gin.Context) {
+	user := middleware.CurrentUser(c)
+	if user == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+	if user.Role != "admin" {
+		c.JSON(403, errorResponse{Error: "forbidden"})
+		return
+	}
+
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil {
+		c.JSON(400, errorResponse{Error: "invalid report id"})
+		return
+	}
+
+	var req updatePlanIndicatorReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, errorResponse{Error: err.Error()})
+		return
+	}
+
+	if err := h.ensurePlanIndicatorReportsTable(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to prepare reports storage"})
+		return
+	}
+	if err := h.ensurePlanIndicatorReportFilesTable(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to prepare report files storage"})
+		return
+	}
+
+	var updatedID int
+	err = h.db.QueryRow(`
+		UPDATE report_submissions
+		SET report_text = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+		RETURNING id
+	`, strings.TrimSpace(req.ReportText), reportID).Scan(&updatedID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "report not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to update report"})
+		return
+	}
+
+	item, err := h.fetchPlanReportByID(updatedID)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load updated report"})
+		return
+	}
+
+	c.JSON(200, item)
 }
 
 // listPlanReports godoc

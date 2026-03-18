@@ -97,6 +97,11 @@ export async function reviewPlanReport(reportId, payload) {
   return data
 }
 
+export async function updatePlanReport(reportId, payload) {
+  const { data } = await http.patch(`/plans/reports/${reportId}`, payload)
+  return data
+}
+
 export async function downloadPlanReportFile(fileId) {
   const response = await http.get(`/plans/reports/files/${fileId}/download`, {
     responseType: 'blob'

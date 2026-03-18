@@ -34,13 +34,13 @@ const cardConfig = computed(() => {
     return [
       { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
       { key: 'pending', label: tr('На проверке', 'Тексерісте') },
-      { key: 'completed', label: tr('Завершено', 'Аяқталған') },
+      { key: 'completed', label: tr('Принято', 'Қабылданды') },
       { key: 'overdue', label: tr('Просрочено', 'Мерзімі өткен') }
     ]
   }
   return [
     { key: 'total', label: tr('Всего задач', 'Барлық тапсырма') },
-    { key: 'completed', label: tr('Завершено', 'Аяқталған') },
+    { key: 'completed', label: tr('Принято', 'Қабылданды') },
     { key: 'pending', label: tr('На проверке', 'Тексерісте') },
     { key: 'not_filled', label: tr('Не заполнено', 'Толтырылмаған') },
     { key: 'in_progress', label: tr('В работе', 'Жұмыста') },
@@ -50,7 +50,7 @@ const cardConfig = computed(() => {
 
 function cardMetaLabel(cardKey) {
   if (cardKey === 'total') return tr('Полный пул индикаторов выбранного года', 'Таңдалған жылдың толық индикаторлар пулы')
-  if (cardKey === 'completed') return tr('Позиции с утвержденным завершением', 'Расталған аяқталу статусы бар позициялар')
+  if (cardKey === 'completed') return tr('Позиции с принятым результатом', 'Қабылданған нәтижесі бар позициялар')
   if (cardKey === 'pending') return tr('Индикаторы, ожидающие проверки администратора', 'Әкімші тексеруін күтіп тұрған индикаторлар')
   if (cardKey === 'not_filled') return tr('Индикаторы без заполненного графика или отчета', 'Кестесі не есебі толтырылмаған индикаторлар')
   if (cardKey === 'in_progress') return tr('Активные задачи в пределах срока', 'Мерзім ішіндегі белсенді тапсырмалар')
@@ -67,7 +67,7 @@ const cards = computed(() => cardConfig.value.map((card) => ({
 const listTitle = computed(() => {
   switch (activeCard.value) {
     case 'completed':
-      return tr('Список завершенных индикаторов', 'Аяқталған индикаторлар тізімі')
+      return tr('Список принятых индикаторов', 'Қабылданған индикаторлар тізімі')
     case 'pending':
       return tr('Список индикаторов на проверке', 'Тексерістегі индикаторлар тізімі')
     case 'in_progress':
@@ -84,7 +84,7 @@ const listTitle = computed(() => {
 function statusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'completed') {
-    return tr('Завершено', 'Аяқталған')
+    return tr('Принято', 'Қабылданды')
   }
   if (normalized === 'pending') {
     return tr('На проверке', 'Тексерісте')

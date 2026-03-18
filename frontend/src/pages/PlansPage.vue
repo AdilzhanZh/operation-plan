@@ -6,8 +6,10 @@ import {
   downloadPlanReportFile,
   fetchPlanIndicators,
   fetchPlanReports,
+  reviewPlanReport,
   savePlanIndicator,
-  submitPlanIndicatorReport
+  submitPlanIndicatorReport,
+  updatePlanReport
 } from '../services/plan.service'
 import { fetchProrectorsRequest } from '../services/user.service'
 import { useAuthStore } from '../store/auth'
@@ -53,13 +55,21 @@ const reportsHistoryModalOpen = ref(false)
 const reportsHistoryIndicator = ref(null)
 const reportsHistoryItems = ref([])
 const reportsHistoryLoading = ref(false)
+const historyEditModalOpen = ref(false)
+const historyEditReportId = ref(null)
+const historyEditText = ref('')
+const historyEditSaving = ref(false)
+const historyReviewModalOpen = ref(false)
+const historyReviewMode = ref('approve')
+const historyReviewReportId = ref(null)
+const historyReviewText = ref('')
+const historyReviewSaving = ref(false)
 const readModalOpen = ref(false)
 const readModalTitle = ref('')
 const readModalText = ref('')
 const rowEditModalOpen = ref(false)
 const rowEditIndicatorId = ref(null)
 const rowEditForm = ref({
-  activities: '',
   execution_start_date: '',
   execution_end_date: '',
   responsible_user_ids: []
@@ -72,6 +82,8 @@ const isProrector = computed(() => authStore.user?.role === 'prorector')
 const canUseReportsTab = computed(() => isAdmin.value || isProrector.value)
 const canLoadYear = computed(() => selectedYear.value !== '')
 const activeReportRow = computed(() => rows.value.find((item) => item.indicator_id === reportIndicatorId.value) ?? null)
+const activeHistoryReport = computed(() => reportsHistoryItems.value.find((item) => item.id === historyEditReportId.value) ?? null)
+const activeHistoryReviewReport = computed(() => reportsHistoryItems.value.find((item) => item.id === historyReviewReportId.value) ?? null)
 const activePanelSubtitle = computed(() => {
   if (activeViewTab.value === 'reports') {
     return tr(
@@ -401,7 +413,6 @@ function openRowEditModal(row) {
 
   rowEditIndicatorId.value = row.indicator_id
   rowEditForm.value = {
-    activities: String(row.activities ?? ''),
     execution_start_date: String(row.execution_start_date ?? ''),
     execution_end_date: String(row.execution_end_date ?? ''),
     responsible_user_ids: normalizeIDList(row.responsible_user_ids)
@@ -414,7 +425,6 @@ function closeRowEditModal() {
   rowEditModalOpen.value = false
   rowEditIndicatorId.value = null
   rowEditForm.value = {
-    activities: '',
     execution_start_date: '',
     execution_end_date: '',
     responsible_user_ids: []
@@ -432,7 +442,6 @@ async function saveRowFromModal() {
     return
   }
 
-  row.activities = rowEditForm.value.activities.trim()
   row.execution_start_date = String(rowEditForm.value.execution_start_date ?? '')
   row.execution_end_date = String(rowEditForm.value.execution_end_date ?? '')
   row.responsible_user_ids = normalizeIDList(rowEditForm.value.responsible_user_ids)
@@ -466,7 +475,7 @@ function closeReportModal() {
 function reportStatusLabel(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (normalized === 'completed') {
-    return tr('Завершено', 'Аяқталған')
+    return tr('Принято', 'Қабылданды')
   }
   if (normalized === 'rejected') {
     return tr('Отклонено', 'Қабылданбаған')
@@ -527,13 +536,42 @@ async function openReportsHistoryModal(row) {
 
   clearMessages()
   reportsHistoryIndicator.value = row
-  reportsHistoryItems.value = []
   reportsHistoryModalOpen.value = true
+  await loadReportsHistory(row.indicator_id)
+}
+
+function closeReportsHistoryModal() {
+  reportsHistoryModalOpen.value = false
+  reportsHistoryIndicator.value = null
+  reportsHistoryItems.value = []
+  reportsHistoryLoading.value = false
+  closeHistoryEditModal()
+  closeHistoryReviewModal()
+}
+
+function openNewReportFromHistory() {
+  if (!reportsHistoryIndicator.value) {
+    return
+  }
+  const row = rows.value.find((item) => item.indicator_id === reportsHistoryIndicator.value.indicator_id)
+  closeReportsHistoryModal()
+  if (row) {
+    openReportModal(row)
+  }
+}
+
+async function loadReportsHistory(indicatorID = reportsHistoryIndicator.value?.indicator_id) {
+  if (!indicatorID) {
+    reportsHistoryItems.value = []
+    return
+  }
+
+  reportsHistoryItems.value = []
   reportsHistoryLoading.value = true
 
   try {
     const response = await fetchPlanReports(selectedYear.value, {
-      indicator_id: row.indicator_id
+      indicator_id: indicatorID
     })
     reportsHistoryItems.value = response.items ?? []
   } catch (error) {
@@ -546,21 +584,124 @@ async function openReportsHistoryModal(row) {
   }
 }
 
-function closeReportsHistoryModal() {
-  reportsHistoryModalOpen.value = false
-  reportsHistoryIndicator.value = null
-  reportsHistoryItems.value = []
-  reportsHistoryLoading.value = false
+function canReviewHistoryItem(item) {
+  return String(item?.status ?? '').toLowerCase() === 'pending'
 }
 
-function openNewReportFromHistory() {
-  if (!reportsHistoryIndicator.value) {
+function openHistoryEditModal(item) {
+  if (!isAdmin.value || !item) {
     return
   }
-  const row = rows.value.find((item) => item.indicator_id === reportsHistoryIndicator.value.indicator_id)
-  closeReportsHistoryModal()
-  if (row) {
-    openReportModal(row)
+
+  clearMessages()
+  historyEditReportId.value = item.id
+  historyEditText.value = item.report_text ?? ''
+  historyEditModalOpen.value = true
+}
+
+function closeHistoryEditModal() {
+  historyEditModalOpen.value = false
+  historyEditReportId.value = null
+  historyEditText.value = ''
+  historyEditSaving.value = false
+}
+
+async function submitHistoryEdit() {
+  if (!isAdmin.value || historyEditReportId.value === null) {
+    return
+  }
+
+  historyEditSaving.value = true
+  clearMessages()
+
+  try {
+    await updatePlanReport(historyEditReportId.value, {
+      report_text: historyEditText.value
+    })
+    successMessage.value = tr('Текст отчета обновлен', 'Есеп мәтіні жаңартылды')
+    closeHistoryEditModal()
+    await loadReportsHistory()
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? tr('Не удалось обновить текст отчета', 'Есеп мәтінін жаңарту мүмкін болмады')
+  } finally {
+    historyEditSaving.value = false
+  }
+}
+
+function openHistoryApproveModal(item) {
+  if (!isAdmin.value || !item) {
+    return
+  }
+
+  clearMessages()
+  historyReviewMode.value = 'approve'
+  historyReviewReportId.value = item.id
+  historyReviewText.value = item.approval_formula ?? ''
+  historyReviewModalOpen.value = true
+}
+
+function openHistoryRejectModal(item) {
+  if (!isAdmin.value || !item) {
+    return
+  }
+
+  clearMessages()
+  historyReviewMode.value = 'reject'
+  historyReviewReportId.value = item.id
+  historyReviewText.value = item.review_note ?? ''
+  historyReviewModalOpen.value = true
+}
+
+function closeHistoryReviewModal() {
+  historyReviewModalOpen.value = false
+  historyReviewReportId.value = null
+  historyReviewText.value = ''
+  historyReviewSaving.value = false
+}
+
+async function submitHistoryReview() {
+  if (!isAdmin.value || historyReviewReportId.value === null) {
+    return
+  }
+
+  const normalizedText = historyReviewText.value.trim()
+  if (!normalizedText) {
+    errorMessage.value = historyReviewMode.value === 'approve'
+      ? tr('Заполните формулу', 'Формуланы толтырыңыз')
+      : tr('Заполните причину отклонения', 'Қабылдамау себебін толтырыңыз')
+    return
+  }
+
+  historyReviewSaving.value = true
+  clearMessages()
+
+  try {
+    if (historyReviewMode.value === 'approve') {
+      await reviewPlanReport(historyReviewReportId.value, {
+        action: 'approve',
+        approval_formula: normalizedText
+      })
+      successMessage.value = tr('Отчет принят', 'Есеп қабылданды')
+    } else {
+      await reviewPlanReport(historyReviewReportId.value, {
+        action: 'reject',
+        review_note: normalizedText
+      })
+      successMessage.value = tr('Отчет отклонен', 'Есеп қабылданбады')
+    }
+
+    closeHistoryReviewModal()
+    await loadReportsHistory()
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.error
+      ?? (typeof error?.response?.data === 'string' ? error.response.data : null)
+      ?? error?.message
+      ?? tr('Не удалось обновить статус отчета', 'Есеп статусын жаңарту мүмкін болмады')
+  } finally {
+    historyReviewSaving.value = false
   }
 }
 
@@ -710,14 +851,13 @@ onBeforeUnmount(() => {
 
           <div v-else class="table-wrapper">
             <table class="plan-table">
-              <thead>
-                <tr>
-                  <th class="col-number">№</th>
-                  <th>{{ tr('Индикатор Программы развития', 'Бағдарлама дамуының индикаторы') }}</th>
-                  <th>{{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}</th>
-                  <th class="col-deadline">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
-                  <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
-                </tr>
+            <thead>
+              <tr>
+                <th class="col-number">№</th>
+                <th>{{ tr('Индикатор Программы развития', 'Бағдарлама дамуының индикаторы') }}</th>
+                <th class="col-deadline">{{ tr('Срок исполнения', 'Орындау мерзімі') }}</th>
+                <th class="col-responsible">{{ tr('Ответственные', 'Жауаптылар') }}</th>
+              </tr>
               </thead>
               <tbody>
                 <tr v-for="(row, index) in visibleRows" :key="row.indicator_id">
@@ -735,27 +875,13 @@ onBeforeUnmount(() => {
                     >
                       <span class="table-text-preview-content">{{ textPreview(row.development_indicator) }}</span>
                     </div>
-                    <span class="planned-value-chip">
-                      {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
-                    </span>
-                  </td>
+                  <span class="planned-value-chip">
+                    {{ formatPlannedValue(row.planned_value, row.measurement_unit || row.unit) }}
+                  </span>
+                </td>
 
-                  <td :data-label="tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары')">
-                    <div
-                      class="table-text-preview text-pretty"
-                      :class="{ 'is-empty': textPreview(row.activities) === '—' }"
-                      role="button"
-                      tabindex="0"
-                      @click="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                      @keyup.enter="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                      @keyup.space.prevent="openReadModal(tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары'), row.activities)"
-                    >
-                      <span class="table-text-preview-content">{{ textPreview(row.activities) }}</span>
-                    </div>
-                  </td>
-
-                  <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
-                    <div class="plans-schedule-card">
+                <td :data-label="tr('Срок исполнения', 'Орындау мерзімі')">
+                  <div class="plans-schedule-card">
                       <p class="table-inline-value">{{ formatDateRange(row) || '—' }}</p>
                       <div class="schedule-status" :class="`schedule-${row.schedule_status}`">
                         {{ scheduleStatusLabel(row.schedule_status) }}
@@ -881,10 +1007,21 @@ onBeforeUnmount(() => {
             class="plans-history-item"
           >
             <div class="plans-history-item-head">
-              <span class="planned-value-chip">#{{ item.id }}</span>
-              <span class="schedule-status" :class="reportStatusClass(item.status)">
-                {{ reportStatusLabel(item.status) }}
-              </span>
+              <div class="plans-history-item-meta">
+                <span class="planned-value-chip">#{{ item.id }}</span>
+                <span class="schedule-status" :class="reportStatusClass(item.status)">
+                  {{ reportStatusLabel(item.status) }}
+                </span>
+              </div>
+              <button
+                v-if="isAdmin"
+                class="btn btn-ghost plans-history-icon-btn"
+                type="button"
+                :aria-label="tr('Редактировать текст отчета', 'Есеп мәтінін өзгерту')"
+                @click="openHistoryEditModal(item)"
+              >
+                ✎
+              </button>
             </div>
 
             <div
@@ -928,12 +1065,96 @@ onBeforeUnmount(() => {
             <p v-if="item.approval_formula" class="cell-note success-text">
               {{ tr('Формула/итог:', 'Формула/қорытынды:') }} {{ item.approval_formula }}
             </p>
+
+            <div v-if="isAdmin && canReviewHistoryItem(item)" class="plans-history-actions">
+              <button class="btn btn-primary" type="button" @click="openHistoryApproveModal(item)">
+                {{ tr('Принять', 'Қабылдау') }}
+              </button>
+              <button class="btn btn-danger" type="button" @click="openHistoryRejectModal(item)">
+                {{ tr('Отклонить', 'Қабылдамау') }}
+              </button>
+            </div>
           </article>
         </div>
 
         <div class="modal-actions">
           <button class="btn btn-primary" type="button" @click="closeReportsHistoryModal">
             {{ tr('Закрыть', 'Жабу') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="historyEditModalOpen" class="modal-backdrop" @click.self="closeHistoryEditModal">
+      <div class="modal-card plans-modal plans-edit-report-modal">
+        <h3 class="modal-title">{{ tr('Редактировать текст отчета', 'Есеп мәтінін өзгерту') }}</h3>
+        <p class="modal-subtitle text-pretty">
+          {{ activeHistoryReport?.development_indicator || tr('Индикатор', 'Индикатор') }}
+        </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
+
+        <label class="modal-label">
+          <span>{{ tr('Текст отчета', 'Есеп мәтіні') }}</span>
+          <textarea
+            v-model="historyEditText"
+            class="modal-textarea"
+            rows="8"
+            :placeholder="tr('Введите обновленный текст отчета...', 'Жаңартылған есеп мәтінін енгізіңіз...')"
+          />
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" @click="closeHistoryEditModal">
+            {{ tr('Отмена', 'Бас тарту') }}
+          </button>
+          <button class="btn btn-primary" type="button" :disabled="historyEditSaving" @click="submitHistoryEdit">
+            {{ historyEditSaving ? tr('Сохранение...', 'Сақталуда...') : tr('Сохранить', 'Сақтау') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="historyReviewModalOpen" class="modal-backdrop" @click.self="closeHistoryReviewModal">
+      <div class="modal-card plans-modal plans-review-modal">
+        <h3 class="modal-title">
+          {{ historyReviewMode === 'approve' ? tr('Принять отчет', 'Есепті қабылдау') : tr('Отклонить отчет', 'Есепті қабылдамау') }}
+        </h3>
+        <p class="modal-subtitle text-pretty">
+          {{ activeHistoryReviewReport?.development_indicator || tr('Индикатор', 'Индикатор') }}
+        </p>
+        <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
+
+        <label class="modal-label">
+          <span v-if="historyReviewMode === 'approve'">
+            {{ tr('Формула и итоговое значение', 'Формула және қорытынды сан') }}
+          </span>
+          <span v-else>
+            {{ tr('Причина отклонения', 'Қабылдамау себебі') }}
+          </span>
+          <textarea
+            v-model="historyReviewText"
+            class="modal-textarea"
+            rows="6"
+            :placeholder="historyReviewMode === 'approve'
+              ? tr('Например: 157/525 ППС + 11587 обучающихся *100%=1,3%', 'Мысалы: 157/525 ППС + 11587 обучающихся *100%=1,3%')
+              : tr('Укажите причину отклонения...', 'Қабылданбау себебін жазыңыз...')"
+          />
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" @click="closeHistoryReviewModal">
+            {{ tr('Отмена', 'Бас тарту') }}
+          </button>
+          <button class="btn btn-primary" type="button" :disabled="historyReviewSaving" @click="submitHistoryReview">
+            {{
+              historyReviewSaving
+                ? tr('Сохранение...', 'Сақталуда...')
+                : historyReviewMode === 'approve'
+                  ? tr('Принять', 'Қабылдау')
+                  : tr('Отклонить', 'Қабылдамау')
+            }}
           </button>
         </div>
       </div>
@@ -976,16 +1197,6 @@ onBeforeUnmount(() => {
             >
               {{ textPreview(activeRowEdit?.development_indicator) }}
             </div>
-          </label>
-
-          <label class="modal-label">
-            {{ tr('Мероприятия по достижению индикатора', 'Индикаторға жету іс-шаралары') }}
-            <textarea
-              v-model="rowEditForm.activities"
-              class="plans-edit-textarea"
-              rows="8"
-              :placeholder="tr('Введите мероприятия...', 'Мероприятия мәтінін жазыңыз...')"
-            />
           </label>
 
           <div class="row-edit-dates">
@@ -1238,7 +1449,7 @@ onBeforeUnmount(() => {
 }
 
 .plan-table {
-  min-width: 1020px;
+  min-width: 860px;
 }
 
 .plans-reports-table {
@@ -1250,11 +1461,11 @@ onBeforeUnmount(() => {
 }
 
 .col-deadline {
-  width: 15rem;
+  width: 16rem;
 }
 
 .col-responsible {
-  width: 14rem;
+  width: 15rem;
 }
 
 .col-action {
@@ -1408,6 +1619,11 @@ onBeforeUnmount(() => {
   width: min(900px, 100%);
 }
 
+.plans-edit-report-modal,
+.plans-review-modal {
+  width: min(720px, 100%);
+}
+
 .plans-history-toolbar {
   margin-top: 0.75rem;
   display: flex;
@@ -1444,12 +1660,41 @@ onBeforeUnmount(() => {
   margin-bottom: 0.55rem;
 }
 
+.plans-history-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.plans-history-icon-btn {
+  width: 2.35rem;
+  min-width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 1rem;
+}
+
 .plans-history-text {
   margin-bottom: 0.55rem;
 }
 
 .plans-history-files {
   margin-bottom: 0.45rem;
+}
+
+.plans-history-actions {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.plans-history-actions .btn {
+  min-width: 9.5rem;
+  justify-content: center;
 }
 
 .report-status-pending {
@@ -1582,9 +1827,15 @@ onBeforeUnmount(() => {
   margin-top: 1rem;
 }
 
+.modal-textarea,
 .report-textarea,
 .report-file-input {
   width: 100%;
+}
+
+.modal-textarea {
+  min-height: 8.8rem;
+  resize: vertical;
 }
 
 .file-list {

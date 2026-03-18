@@ -605,7 +605,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="handleAdminCategoryChange('completed')"
         >
-          {{ tr('Завершено', 'Аяқталған') }}
+          {{ tr('Принято', 'Қабылданды') }}
         </button>
         <button
           class="btn btn-ghost execution-category-btn"
@@ -632,7 +632,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="handleProrectorCategoryChange('completed')"
         >
-          {{ tr('Завершено', 'Аяқталған') }}
+          {{ tr('Принято', 'Қабылданды') }}
         </button>
         <button
           class="btn btn-ghost execution-category-btn"
@@ -667,7 +667,7 @@ onBeforeUnmount(() => {
             {{ tr(`За ${selectedYear} год нет отклоненных отчетов.`, `${selectedYear} жылына қабылданбаған есептер жоқ.`) }}
           </template>
           <template v-else-if="isProrectorCompletedCategory">
-            {{ tr(`За ${selectedYear} год нет завершенных отчетов.`, `${selectedYear} жылына аяқталған есептер жоқ.`) }}
+            {{ tr(`За ${selectedYear} год нет принятых отчетов.`, `${selectedYear} жылына қабылданған есептер жоқ.`) }}
           </template>
           <template v-else>
             {{ tr(`За ${selectedYear} год нет отчетов в категории На проверке.`, `${selectedYear} жылына На проверке категориясында отчеттар жоқ.`) }}
@@ -675,7 +675,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="isAdmin">
           <template v-if="isAdminCompletedCategory">
-            {{ tr(`За ${selectedYear} год нет завершенных отчетов.`, `${selectedYear} жылына аяқталған есептер жоқ.`) }}
+            {{ tr(`За ${selectedYear} год нет принятых отчетов.`, `${selectedYear} жылына қабылданған есептер жоқ.`) }}
           </template>
           <template v-else-if="isAdminRejectedCategory">
             {{ tr(`За ${selectedYear} год нет отклоненных отчетов.`, `${selectedYear} жылына қабылданбаған есептер жоқ.`) }}
