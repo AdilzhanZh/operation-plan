@@ -46,6 +46,7 @@ type planIndicatorReportRow struct {
 	IndicatorID          int                       `json:"indicator_id"`
 	Year                 int                       `json:"year"`
 	DevelopmentIndicator string                    `json:"development_indicator"`
+	EvaluationFormula    string                    `json:"evaluation_formula"`
 	PlannedValue         string                    `json:"planned_value"`
 	Unit                 string                    `json:"unit"`
 	ExecutionDeadline    string                    `json:"execution_deadline"`
@@ -999,6 +1000,7 @@ func (h *Handler) queryPlanReportsPaged(whereClause string, page int, limit int,
 		       pi.indicator_id,
 		       pi.year,
 		       COALESCE(NULLIF(pi.development_indicator, ''), ppi.target_indicator),
+		       COALESCE(pi.evaluation_formula, ''),
 		       COALESCE(iyt.planned_value, ''),
 		       COALESCE(ppi.unit, ''),
 		       CASE
@@ -1047,6 +1049,7 @@ func (h *Handler) queryPlanReportsPaged(whereClause string, page int, limit int,
 			&item.IndicatorID,
 			&item.Year,
 			&item.DevelopmentIndicator,
+			&item.EvaluationFormula,
 			&item.PlannedValue,
 			&item.Unit,
 			&item.ExecutionDeadline,

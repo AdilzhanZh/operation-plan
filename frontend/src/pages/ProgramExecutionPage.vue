@@ -1036,6 +1036,18 @@ onBeforeUnmount(() => {
         <p v-if="errorMessage" class="message message-error modal-feedback">{{ errorMessage }}</p>
         <p v-if="successMessage" class="message message-success modal-feedback">{{ successMessage }}</p>
 
+        <div
+          v-if="reviewMode === 'approve' && activeReviewRow?.evaluation_formula"
+          class="execution-formula-hint"
+        >
+          <span class="execution-formula-hint-label">
+            {{ tr('Формула оценки индикатора', 'Индикаторды бағалау формуласы') }}
+          </span>
+          <div class="execution-formula-hint-body text-pretty">
+            {{ activeReviewRow.evaluation_formula }}
+          </div>
+        </div>
+
         <label class="modal-label">
           <span v-if="reviewMode === 'approve'">
             {{ tr('Формула и итоговое значение', 'Формула және қорытынды сан') }}
@@ -1136,7 +1148,7 @@ onBeforeUnmount(() => {
 
 .execution-year-strip {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.5rem;
   min-width: 0;
   width: min(100%, 940px);
 }
@@ -1163,16 +1175,24 @@ onBeforeUnmount(() => {
 }
 
 .year-nav-btn {
-  min-height: 2rem;
+  min-height: 2.28rem;
+  min-width: 2.28rem;
   padding: 0.35rem 0.62rem;
+  border-radius: 999px;
+  border-color: rgba(221, 224, 242, 0.92);
+  background: rgba(248, 249, 255, 0.82);
+  box-shadow: 0 10px 24px rgba(112, 123, 184, 0.08);
 }
 
 .year-strip-shell {
   position: relative;
   overflow: hidden;
-  border-radius: 16px;
-  border: 1px solid rgba(16, 33, 42, 0.1);
-  background: rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  border: 1px solid rgba(221, 224, 242, 0.9);
+  background: rgba(248, 249, 255, 0.92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 10px 28px rgba(112, 123, 184, 0.08);
   max-width: 100%;
 }
 
@@ -1191,12 +1211,12 @@ onBeforeUnmount(() => {
 
 .year-strip-shell::before {
   left: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+  background: linear-gradient(90deg, rgba(248, 249, 255, 0.98), rgba(248, 249, 255, 0));
 }
 
 .year-strip-shell::after {
   right: 0;
-  background: linear-gradient(270deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+  background: linear-gradient(270deg, rgba(248, 249, 255, 0.98), rgba(248, 249, 255, 0));
 }
 
 .year-strip-shell.has-left-fade::before {
@@ -1210,11 +1230,11 @@ onBeforeUnmount(() => {
 .year-track {
   display: flex;
   align-items: center;
-  gap: 0.38rem;
+  gap: 0.5rem;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-behavior: smooth;
-  padding: 0.3rem;
+  padding: 0.25rem;
   scrollbar-width: none;
 }
 
@@ -1223,23 +1243,36 @@ onBeforeUnmount(() => {
 }
 
 .year-tab {
-  border: 1px solid rgba(16, 33, 42, 0.12);
-  background: rgba(255, 255, 255, 0.96);
-  color: #324754;
-  min-height: 1.88rem;
-  min-width: 3.4rem;
-  padding: 0.28rem 0.68rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted-strong);
+  min-height: 2.7rem;
+  min-width: 3.55rem;
+  padding: 0.72rem 1rem;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.94rem;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
+  transition: background-color 0.22s ease, color 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.year-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .year-tab.is-active {
-  border-color: rgba(17, 120, 111, 0.5);
-  background: linear-gradient(135deg, rgba(17, 120, 111, 0.2), rgba(17, 120, 111, 0.1));
-  color: #0f5e57;
+  border-color: rgba(255, 255, 255, 0.75);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(245, 248, 255, 0.42)),
+    linear-gradient(135deg, rgba(154, 188, 255, 0.16), rgba(255, 255, 255, 0.1) 40%, rgba(139, 234, 220, 0.12));
+  color: var(--text);
+  box-shadow:
+    0 16px 34px rgba(110, 120, 180, 0.16),
+    0 6px 14px rgba(255, 255, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    inset 0 -1px 0 rgba(198, 208, 245, 0.32);
 }
 
 .execution-categories {
@@ -1407,6 +1440,30 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.72);
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+.execution-formula-hint {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(17, 120, 111, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(239, 249, 247, 0.9), rgba(255, 255, 255, 0.94));
+}
+
+.execution-formula-hint-label {
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.execution-formula-hint-body {
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .report-details-grid {
