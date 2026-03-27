@@ -62,7 +62,7 @@ async function submit() {
         </div>
         <div class="auth-point">
           <strong>{{ tr('Быстрый контроль', 'Жедел бақылау') }}</strong>
-          <span>{{ tr('Администраторы и проректоры работают в одном процессе без переключения между системами.', 'Әкімшілер мен проректорлар жүйелер арасында ауыспай, бір процесте жұмыс істейді.') }}</span>
+          <span>{{ tr('Администраторы и сотрудники работают в одном процессе без переключения между системами.', 'Әкімшілер мен қызметкерлер жүйелер арасында ауыспай, бір процесте жұмыс істейді.') }}</span>
         </div>
       </div>
     </div>
@@ -96,6 +96,12 @@ async function submit() {
         </button>
       </form>
 
+      <div class="auth-secondary-links">
+        <RouterLink :to="{ name: 'forgot-password' }" class="auth-muted-link">
+          {{ tr('Забыли пароль?', 'Құпиясөзді ұмыттыңыз ба?') }}
+        </RouterLink>
+      </div>
+
       <p class="auth-link-row">
         {{ tr('Нет аккаунта?', 'Аккаунтыңыз жоқ па?') }}
         <RouterLink :to="{ name: 'register' }">{{ tr('Регистрация', 'Тіркелу') }}</RouterLink>
@@ -114,5 +120,16 @@ async function submit() {
 .auth-submit {
   width: 100%;
   justify-content: center;
+}
+
+.auth-secondary-links {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+}
+
+.auth-muted-link {
+  color: var(--muted-strong);
+  font-weight: 700;
 }
 </style>

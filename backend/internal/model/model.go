@@ -3,16 +3,18 @@ package model
 import "time"
 
 type User struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	FirstName     string    `gorm:"size:128;not null" json:"first_name"`
-	LastName      string    `gorm:"size:128;not null" json:"last_name"`
-	MiddleName    string    `gorm:"size:128" json:"middle_name"`
-	FullName      string    `gorm:"size:255;not null" json:"full_name"`
-	Username      string    `gorm:"size:64;not null;uniqueIndex" json:"username"`
-	PasswordPlain string    `gorm:"size:255;not null" json:"password_plain"`
-	Role          string    `gorm:"size:32;not null;index" json:"role"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	FirstName    string    `gorm:"size:128;not null" json:"first_name"`
+	LastName     string    `gorm:"size:128;not null" json:"last_name"`
+	MiddleName   string    `gorm:"size:128" json:"middle_name"`
+	FullName     string    `gorm:"size:255;not null" json:"full_name"`
+	Username     string    `gorm:"size:64;not null;uniqueIndex" json:"username"`
+	Email        string    `gorm:"size:255;index" json:"email"`
+	Position     string    `gorm:"size:255;not null;default:''" json:"position"`
+	PasswordHash string    `gorm:"size:255;not null;default:''" json:"password_hash"`
+	Role         string    `gorm:"size:32;not null;index" json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Plan struct {

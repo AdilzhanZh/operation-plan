@@ -9,19 +9,27 @@ import (
 )
 
 type Config struct {
-	Port               string
-	LogLevel           string
-	DBHost             string
-	DBPort             string
-	DBUser             string
-	DBPassword         string
-	DBName             string
-	DBSSLMode          string
-	DBTimezone         string
-	SessionTTLHours    int
+	Port                   string
+	LogLevel               string
+	DBHost                 string
+	DBPort                 string
+	DBUser                 string
+	DBPassword             string
+	DBName                 string
+	DBSSLMode              string
+	DBTimezone             string
+	SessionTTLHours        int
 	BootstrapAdminUsername string
 	BootstrapAdminPassword string
-	CORSAllowedOrigins []string
+	SMTPHost               string
+	SMTPPort               string
+	SMTPUsername           string
+	SMTPPassword           string
+	SMTPFromEmail          string
+	SMTPFromName           string
+	OTPTTLMinutes          int
+	ResetSessionTTLMinutes int
+	CORSAllowedOrigins     []string
 }
 
 func Load() (*Config, error) {
@@ -44,6 +52,14 @@ func Load() (*Config, error) {
 		SessionTTLHours:        getEnvInt("SESSION_TTL_HOURS", 24),
 		BootstrapAdminUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
 		BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
+		SMTPHost:               getEnv("SMTP_HOST", ""),
+		SMTPPort:               getEnv("SMTP_PORT", "587"),
+		SMTPUsername:           getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:           getEnv("SMTP_PASSWORD", ""),
+		SMTPFromEmail:          getEnv("SMTP_FROM_EMAIL", ""),
+		SMTPFromName:           getEnv("SMTP_FROM_NAME", "Oper Plan"),
+		OTPTTLMinutes:          getEnvInt("OTP_TTL_MINUTES", 10),
+		ResetSessionTTLMinutes: getEnvInt("RESET_SESSION_TTL_MINUTES", 15),
 		CORSAllowedOrigins: getEnvList(
 			"CORS_ALLOWED_ORIGINS",
 			[]string{

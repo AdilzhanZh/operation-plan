@@ -22,11 +22,18 @@ internal/
 
 - `POST /login`
 - `POST /logout`
-- `POST /register`
+- `POST /register/request-code`
+- `POST /register/verify-code`
+- `POST /password-reset/request-code`
+- `POST /password-reset/verify-code`
+- `POST /password-reset/confirm`
 - `GET /me`
 - `POST /change-password`
 - `GET /users` (admin)
 - `POST /users` (admin)
+- `GET /registration-requests` (admin)
+- `PATCH /registration-requests/:id/approve` (admin)
+- `PATCH /registration-requests/:id/reject` (admin)
 - `GET /plans`
 - `POST /plans`
 - `GET /plan-records/:id`
@@ -72,6 +79,14 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
 SESSION_TTL_HOURS=24
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_PASSWORD=
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_account@gmail.com
+SMTP_PASSWORD=your_gmail_app_password
+SMTP_FROM_EMAIL=your_account@gmail.com
+SMTP_FROM_NAME=Oper Plan
+OTP_TTL_MINUTES=10
+RESET_SESSION_TTL_MINUTES=15
 ```
 
 3. Backend-ті іске қосыңыз:
@@ -82,6 +97,17 @@ go run ./cmd/api
 ```
 
 Если нужно автоматически создать первый `admin`, задайте `BOOTSTRAP_ADMIN_PASSWORD` перед запуском. Без этого backend больше не создает администратора с предсказуемым паролем.
+
+Для отправки кодов подтверждения и сброса пароля нужен SMTP-аккаунт. Для Gmail минимально нужны:
+
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=587`
+- `SMTP_USERNAME` — адрес Gmail-аккаунта, который будет отправлять письма
+- `SMTP_PASSWORD` — App Password этого Gmail-аккаунта, обычный пароль Gmail здесь не подходит
+- `SMTP_FROM_EMAIL` — email отправителя
+- `SMTP_FROM_NAME` — отображаемое имя отправителя
+
+Если SMTP не настроен, регистрация с email-кодом и восстановление пароля работать не будут.
 
 4. Тексеру:
 - API health: `http://localhost:8080/healthz`

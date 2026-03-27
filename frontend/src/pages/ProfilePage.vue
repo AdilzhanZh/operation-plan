@@ -18,7 +18,7 @@ const showPasswordForm = ref(false)
 
 function roleLabel(role) {
   if (role === 'admin') return tr('Администратор', 'Әкімші')
-  if (role === 'prorector') return tr('Проректор', 'Проректор')
+  if (role === 'prorector') return tr('Сотрудник', 'Қызметкер')
   if (role === 'viewer') return tr('Наблюдатель', 'Бақылаушы')
   return role
 }
@@ -35,6 +35,8 @@ const profileFields = computed(() => [
   { label: tr('Отчество', 'Тегі'), value: authStore.user?.middle_name || '—' },
   { label: tr('Полное имя', 'Толық аты'), value: authStore.user?.full_name || '—' },
   { label: tr('Логин', 'Логин'), value: authStore.user?.username || '—' },
+  { label: 'Email', value: authStore.user?.email || '—' },
+  { label: tr('Должность', 'Лауазымы'), value: authStore.user?.position || '—' },
   { label: tr('Роль', 'Рөлі'), value: roleLabel(authStore.user?.role) || '—' }
 ])
 

@@ -19,6 +19,8 @@ type UserContext struct {
 	MiddleName string `json:"middle_name"`
 	FullName   string `json:"full_name"`
 	Username   string `json:"username"`
+	Email      string `json:"email"`
+	Position   string `json:"position"`
 	Role       string `json:"role"`
 }
 
@@ -52,6 +54,8 @@ func AuthRequired(db *sql.DB) gin.HandlerFunc {
 			       u.middle_name,
 			       u.full_name,
 			       u.username,
+			       COALESCE(u.email, ''),
+			       COALESCE(u.position, ''),
 			       u.role
 			FROM user_sessions s
 			JOIN users u ON u.id = s.user_id
@@ -66,6 +70,8 @@ func AuthRequired(db *sql.DB) gin.HandlerFunc {
 			&user.MiddleName,
 			&user.FullName,
 			&user.Username,
+			&user.Email,
+			&user.Position,
 			&user.Role,
 		)
 		if err != nil {

@@ -29,7 +29,7 @@ const navigation = computed(() => [
   { name: tr('Выполнение программы', 'Бағдарлама орындалуы'), description: tr('Отчеты и согласование', 'Есептер және келісу'), to: { name: 'program-execution' }, roles: ['admin', 'prorector'] }
 ])
 
-const isAuthPage = computed(() => route.name === 'login' || route.name === 'register')
+const isAuthPage = computed(() => route.name === 'login' || route.name === 'register' || route.name === 'forgot-password')
 const visibleNavigation = computed(() => {
   const currentRole = authStore.user?.role
   return navigation.value.filter((item) => !item.roles?.length || item.roles.includes(currentRole))
@@ -42,7 +42,7 @@ const currentUserRole = computed(() => {
     return tr('Администратор', 'Әкімші')
   }
   if (role === 'prorector') {
-    return tr('Проректор', 'Проректор')
+    return tr('Сотрудник', 'Қызметкер')
   }
   if (role === 'viewer') {
     return tr('Наблюдатель', 'Бақылаушы')

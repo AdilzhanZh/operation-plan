@@ -1,9 +1,11 @@
 package user
 
 import (
+	"OperationPlan/internal/middleware"
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,6 +30,11 @@ type listUsersResponse struct {
 	Meta  listMeta       `json:"meta"`
 }
 
+type listRegistrationRequestsResponse struct {
+	Items []RegistrationRequestResponse `json:"items"`
+	Meta  listMeta                      `json:"meta"`
+}
+
 type listMeta struct {
 	Page       int `json:"page"`
 	Limit      int `json:"limit"`
@@ -40,15 +47,33 @@ type prorectorListResponse struct {
 }
 
 type UserResponse struct {
-	ID            int64     `json:"id"`
-	FirstName     string    `json:"first_name"`
-	LastName      string    `json:"last_name"`
-	MiddleName    string    `json:"middle_name"`
-	FullName      string    `json:"full_name"`
-	Username      string    `json:"username"`
-	PasswordPlain string    `json:"password_plain"`
-	Role          string    `json:"role"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	FirstName  string    `json:"first_name"`
+	LastName   string    `json:"last_name"`
+	MiddleName string    `json:"middle_name"`
+	FullName   string    `json:"full_name"`
+	Username   string    `json:"username"`
+	Email      string    `json:"email"`
+	Position   string    `json:"position"`
+	Role       string    `json:"role"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type RegistrationRequestResponse struct {
+	ID              int64      `json:"id"`
+	FirstName       string     `json:"first_name"`
+	LastName        string     `json:"last_name"`
+	MiddleName      string     `json:"middle_name"`
+	FullName        string     `json:"full_name"`
+	Username        string     `json:"username"`
+	Email           string     `json:"email"`
+	Position        string     `json:"position"`
+	Role            string     `json:"role"`
+	Status          string     `json:"status"`
+	RejectionReason string     `json:"rejection_reason"`
+	CreatedAt       time.Time  `json:"created_at"`
+	ReviewedAt      *time.Time `json:"reviewed_at"`
+	ReviewedByName  string     `json:"reviewed_by_name"`
 }
 
 type ProrectorOption struct {
@@ -61,10 +86,16 @@ type createUserRequest struct {
 	FirstName       string `json:"first_name" binding:"required"`
 	LastName        string `json:"last_name" binding:"required"`
 	MiddleName      string `json:"middle_name"`
+	Position        string `json:"position" binding:"required"`
+	Email           string `json:"email" binding:"required"`
 	Username        string `json:"username" binding:"required"`
 	Password        string `json:"password" binding:"required"`
 	ConfirmPassword string `json:"confirm_password" binding:"required"`
 	Role            string `json:"role" binding:"required"`
+}
+
+type rejectRegistrationRequestBody struct {
+	Reason string `json:"reason"`
 }
 
 type errorResponse struct {
@@ -77,21 +108,12 @@ func RegisterRoutes(router gin.IRoutes, db *sql.DB) {
 	router.GET("/users", h.listUsers)
 	router.GET("/users/prorectors", h.listProrectors)
 	router.POST("/users", h.createUser)
+	router.DELETE("/users/:id", h.deleteUser)
+	router.GET("/registration-requests", h.listRegistrationRequests)
+	router.PATCH("/registration-requests/:id/approve", h.approveRegistrationRequest)
+	router.PATCH("/registration-requests/:id/reject", h.rejectRegistrationRequest)
 }
 
-// listUsers godoc
-// @Summary List users
-// @Description Returns all users for admin panel
-// @Tags users
-// @Produce json
-// @Security BearerAuth
-// @Param role query string false "Filter by role: admin,prorector,viewer"
-// @Param q query string false "Search by full name / username"
-// @Param page query int false "Page number (default 1)"
-// @Param limit query int false "Items per page (default 20, max 100)"
-// @Success 200 {object} listUsersResponse
-// @Failure 500 {object} errorResponse
-// @Router /users [get]
 func (h *Handler) listUsers(c *gin.Context) {
 	page, limit, err := parsePagination(c.Query("page"), c.Query("limit"))
 	if err != nil {
@@ -117,7 +139,7 @@ func (h *Handler) listUsers(c *gin.Context) {
 	if searchQuery != "" {
 		args = append(args, "%"+searchQuery+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
-		where = append(where, fmt.Sprintf("(full_name ILIKE %s OR username ILIKE %s)", placeholder, placeholder))
+		where = append(where, fmt.Sprintf("(full_name ILIKE %s OR username ILIKE %s OR email ILIKE %s OR position ILIKE %s)", placeholder, placeholder, placeholder, placeholder))
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -135,7 +157,7 @@ func (h *Handler) listUsers(c *gin.Context) {
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, limit, (page-1)*limit)
 	rows, err := h.db.Query(`
-		SELECT id, first_name, last_name, middle_name, full_name, username, role, created_at
+		SELECT id, first_name, last_name, middle_name, full_name, username, COALESCE(email, ''), COALESCE(position, ''), role, created_at
 		FROM users
 		WHERE `+whereClause+`
 		ORDER BY id ASC
@@ -157,13 +179,14 @@ func (h *Handler) listUsers(c *gin.Context) {
 			&item.MiddleName,
 			&item.FullName,
 			&item.Username,
+			&item.Email,
+			&item.Position,
 			&item.Role,
 			&item.CreatedAt,
 		); err != nil {
 			c.JSON(500, errorResponse{Error: "failed to parse users"})
 			return
 		}
-		item.PasswordPlain = "hidden"
 		items = append(items, item)
 	}
 
@@ -188,15 +211,114 @@ func (h *Handler) listUsers(c *gin.Context) {
 	})
 }
 
-// listProrectors godoc
-// @Summary List prorector users
-// @Description Returns users with role=prorector for assignment in plans
-// @Tags users
-// @Produce json
-// @Security BearerAuth
-// @Success 200 {object} prorectorListResponse
-// @Failure 500 {object} errorResponse
-// @Router /users/prorectors [get]
+func (h *Handler) listRegistrationRequests(c *gin.Context) {
+	page, limit, err := parsePagination(c.Query("page"), c.Query("limit"))
+	if err != nil {
+		c.JSON(400, errorResponse{Error: err.Error()})
+		return
+	}
+
+	statusFilter := strings.TrimSpace(strings.ToLower(c.Query("status")))
+	where := []string{"1=1"}
+	args := make([]any, 0, 4)
+
+	if statusFilter != "" {
+		args = append(args, statusFilter)
+		where = append(where, fmt.Sprintf("rr.status = $%d", len(args)))
+	}
+
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM registration_requests rr
+		WHERE `+whereClause, args...).Scan(&total)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load registration requests"})
+		return
+	}
+
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, limit, (page-1)*limit)
+	rows, err := h.db.Query(`
+		SELECT rr.id,
+		       rr.first_name,
+		       rr.last_name,
+		       rr.middle_name,
+		       rr.full_name,
+		       rr.username,
+		       rr.email,
+		       COALESCE(rr.position, ''),
+		       rr.role,
+		       rr.status,
+		       COALESCE(rr.rejection_reason, ''),
+		       rr.created_at,
+		       rr.reviewed_at,
+		       COALESCE(reviewer.full_name, '')
+		FROM registration_requests rr
+		LEFT JOIN users reviewer ON reviewer.id = rr.reviewed_by
+		WHERE `+whereClause+`
+		ORDER BY CASE WHEN rr.status = 'pending' THEN 0 ELSE 1 END, rr.created_at DESC, rr.id DESC
+		LIMIT $`+strconv.Itoa(len(queryArgs)-1)+`
+		OFFSET $`+strconv.Itoa(len(queryArgs)), queryArgs...)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to load registration requests"})
+		return
+	}
+	defer rows.Close()
+
+	items := make([]RegistrationRequestResponse, 0)
+	for rows.Next() {
+		var item RegistrationRequestResponse
+		var reviewedAt sql.NullTime
+		if err := rows.Scan(
+			&item.ID,
+			&item.FirstName,
+			&item.LastName,
+			&item.MiddleName,
+			&item.FullName,
+			&item.Username,
+			&item.Email,
+			&item.Position,
+			&item.Role,
+			&item.Status,
+			&item.RejectionReason,
+			&item.CreatedAt,
+			&reviewedAt,
+			&item.ReviewedByName,
+		); err != nil {
+			c.JSON(500, errorResponse{Error: "failed to parse registration requests"})
+			return
+		}
+		if reviewedAt.Valid {
+			value := reviewedAt.Time
+			item.ReviewedAt = &value
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to iterate registration requests"})
+		return
+	}
+
+	totalPages := total / limit
+	if total%limit != 0 {
+		totalPages++
+	}
+
+	c.JSON(200, listRegistrationRequestsResponse{
+		Items: items,
+		Meta: listMeta{
+			Page:       page,
+			Limit:      limit,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	})
+}
+
 func (h *Handler) listProrectors(c *gin.Context) {
 	rows, err := h.db.Query(`
 		SELECT id, full_name, username
@@ -228,19 +350,6 @@ func (h *Handler) listProrectors(c *gin.Context) {
 	c.JSON(200, prorectorListResponse{Items: items})
 }
 
-// createUser godoc
-// @Summary Create new user
-// @Description Admin creates a new user with specified role
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param payload body createUserRequest true "Create user payload"
-// @Success 201 {object} UserResponse
-// @Failure 400 {object} errorResponse
-// @Failure 409 {object} errorResponse
-// @Failure 500 {object} errorResponse
-// @Router /users [post]
 func (h *Handler) createUser(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -251,44 +360,49 @@ func (h *Handler) createUser(c *gin.Context) {
 	firstName := strings.TrimSpace(req.FirstName)
 	lastName := strings.TrimSpace(req.LastName)
 	middleName := strings.TrimSpace(req.MiddleName)
+	position := strings.TrimSpace(req.Position)
+	email, err := validateEmailAddress(req.Email)
+	if err != nil {
+		c.JSON(400, errorResponse{Error: err.Error()})
+		return
+	}
 	username := strings.TrimSpace(req.Username)
 	password := strings.TrimSpace(req.Password)
 	confirmPassword := strings.TrimSpace(req.ConfirmPassword)
 	role := normalizeRole(req.Role)
 
-	if firstName == "" || lastName == "" || username == "" {
-		c.JSON(400, errorResponse{Error: "first_name, last_name and username are required"})
+	if firstName == "" || lastName == "" || position == "" || username == "" {
+		c.JSON(400, errorResponse{Error: "first_name, last_name, position, email and username are required"})
 		return
 	}
-
 	if role == "" {
 		c.JSON(400, errorResponse{Error: "role must be one of: admin, prorector, viewer"})
 		return
 	}
-
 	if password != confirmPassword {
 		c.JSON(400, errorResponse{Error: "password and confirm_password do not match"})
 		return
 	}
-
 	if err := validatePassword(password); err != nil {
 		c.JSON(400, errorResponse{Error: err.Error()})
 		return
 	}
-	passwordHash, err := hashPassword(password)
-	if err != nil {
-		c.JSON(500, errorResponse{Error: "failed to secure password"})
+
+	if err := h.assertUserIdentityAvailable(username, email); err != nil {
+		switch {
+		case errors.Is(err, errUserExists):
+			c.JSON(409, errorResponse{Error: "username already exists"})
+		case errors.Is(err, errEmailExists):
+			c.JSON(409, errorResponse{Error: "email already exists"})
+		default:
+			c.JSON(500, errorResponse{Error: "failed to validate identity"})
+		}
 		return
 	}
 
-	var existsID int64
-	err = h.db.QueryRow(`SELECT id FROM users WHERE username = $1`, username).Scan(&existsID)
-	if err == nil {
-		c.JSON(409, errorResponse{Error: "username already exists"})
-		return
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		c.JSON(500, errorResponse{Error: "failed to validate username"})
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to secure password"})
 		return
 	}
 
@@ -297,18 +411,29 @@ func (h *Handler) createUser(c *gin.Context) {
 	var created UserResponse
 	err = h.db.QueryRow(`
 		INSERT INTO users (
-			first_name, last_name, middle_name, full_name,
-			username, password_hash, password_plain, role, created_at, updated_at
+			first_name,
+			last_name,
+			middle_name,
+			full_name,
+			username,
+			email,
+			position,
+			password_hash,
+			role,
+			created_at,
+			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, '', $7, NOW(), NOW())
-		RETURNING id, first_name, last_name, middle_name, full_name, username, role, created_at
-	`, firstName, lastName, middleName, fullName, username, passwordHash, role).Scan(
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		RETURNING id, first_name, last_name, middle_name, full_name, username, COALESCE(email, ''), COALESCE(position, ''), role, created_at
+	`, firstName, lastName, middleName, fullName, username, email, position, passwordHash, role).Scan(
 		&created.ID,
 		&created.FirstName,
 		&created.LastName,
 		&created.MiddleName,
 		&created.FullName,
 		&created.Username,
+		&created.Email,
+		&created.Position,
 		&created.Role,
 		&created.CreatedAt,
 	)
@@ -316,10 +441,275 @@ func (h *Handler) createUser(c *gin.Context) {
 		c.JSON(500, errorResponse{Error: "failed to create user"})
 		return
 	}
-	created.PasswordPlain = "hidden"
 
 	c.JSON(201, created)
 }
+
+func (h *Handler) deleteUser(c *gin.Context) {
+	userID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || userID <= 0 {
+		c.JSON(400, errorResponse{Error: "invalid user id"})
+		return
+	}
+
+	currentUser := middleware.CurrentUser(c)
+	if currentUser == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
+	if currentUser.ID == userID {
+		c.JSON(400, errorResponse{Error: "cannot delete current user"})
+		return
+	}
+
+	var role string
+	err = h.db.QueryRow(`
+		SELECT role
+		FROM users
+		WHERE id = $1
+		LIMIT 1
+	`, userID).Scan(&role)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "user not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to load user"})
+		return
+	}
+
+	if role == "admin" {
+		var adminCount int
+		if err := h.db.QueryRow(`
+			SELECT COUNT(*)
+			FROM users
+			WHERE role = 'admin'
+		`).Scan(&adminCount); err != nil {
+			c.JSON(500, errorResponse{Error: "failed to validate admin pool"})
+			return
+		}
+
+		if adminCount <= 1 {
+			c.JSON(400, errorResponse{Error: "cannot delete the last admin"})
+			return
+		}
+	}
+
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to start delete transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE plan_indicator_details pid
+		SET responsible_user_ids = COALESCE((
+			SELECT jsonb_agg(elem.value)
+			FROM jsonb_array_elements_text(COALESCE(pid.responsible_user_ids, '[]'::jsonb)) AS elem(value)
+			WHERE elem.value <> $1::TEXT
+		), '[]'::jsonb),
+		    updated_at = NOW()
+		WHERE COALESCE(pid.responsible_user_ids, '[]'::jsonb) <> '[]'::jsonb
+	`, strconv.FormatInt(userID, 10)); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to clear legacy responsibilities"})
+		return
+	}
+
+	result, err := tx.Exec(`
+		DELETE FROM users
+		WHERE id = $1
+	`, userID)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to delete user"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to finalize delete"})
+		return
+	}
+	if rowsAffected == 0 {
+		c.JSON(404, errorResponse{Error: "user not found"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to commit delete"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "user deleted"})
+}
+
+func (h *Handler) approveRegistrationRequest(c *gin.Context) {
+	requestID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || requestID <= 0 {
+		c.JSON(400, errorResponse{Error: "invalid request id"})
+		return
+	}
+
+	currentUser := middleware.CurrentUser(c)
+	if currentUser == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req RegistrationRequestResponse
+	var passwordHash string
+	err = h.db.QueryRow(`
+		SELECT id,
+		       first_name,
+		       last_name,
+		       middle_name,
+		       full_name,
+		       username,
+		       email,
+		       COALESCE(position, ''),
+		       role,
+		       status,
+		       password_hash
+		FROM registration_requests
+		WHERE id = $1
+		LIMIT 1
+	`, requestID).Scan(
+		&req.ID,
+		&req.FirstName,
+		&req.LastName,
+		&req.MiddleName,
+		&req.FullName,
+		&req.Username,
+		&req.Email,
+		&req.Position,
+		&req.Role,
+		&req.Status,
+		&passwordHash,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "registration request not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to load registration request"})
+		return
+	}
+
+	if req.Status != "pending" {
+		c.JSON(400, errorResponse{Error: "only pending requests can be approved"})
+		return
+	}
+
+	if err := h.assertUserIdentityAvailable(req.Username, req.Email); err != nil {
+		switch {
+		case errors.Is(err, errUserExists):
+			c.JSON(409, errorResponse{Error: "username already exists"})
+		case errors.Is(err, errEmailExists):
+			c.JSON(409, errorResponse{Error: "email already exists"})
+		default:
+			c.JSON(500, errorResponse{Error: "failed to validate identity"})
+		}
+		return
+	}
+
+	var approvedUserID int64
+	err = h.db.QueryRow(`
+		INSERT INTO users (
+			first_name,
+			last_name,
+			middle_name,
+			full_name,
+			username,
+			email,
+			position,
+			password_hash,
+			role,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		RETURNING id
+	`, req.FirstName, req.LastName, req.MiddleName, req.FullName, req.Username, req.Email, req.Position, passwordHash, req.Role).Scan(&approvedUserID)
+	if err != nil {
+		c.JSON(500, errorResponse{Error: "failed to create approved user"})
+		return
+	}
+
+	if _, err := h.db.Exec(`
+		UPDATE registration_requests
+		SET status = 'approved',
+		    rejection_reason = '',
+		    reviewed_by = $1,
+		    reviewed_at = NOW(),
+		    approved_user_id = $2,
+		    updated_at = NOW()
+		WHERE id = $3
+	`, currentUser.ID, approvedUserID, requestID); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to finalize registration request"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "registration request approved"})
+}
+
+func (h *Handler) rejectRegistrationRequest(c *gin.Context) {
+	requestID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || requestID <= 0 {
+		c.JSON(400, errorResponse{Error: "invalid request id"})
+		return
+	}
+
+	currentUser := middleware.CurrentUser(c)
+	if currentUser == nil {
+		c.JSON(401, errorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var body rejectRegistrationRequestBody
+	_ = c.ShouldBindJSON(&body)
+
+	var status string
+	err = h.db.QueryRow(`
+		SELECT status
+		FROM registration_requests
+		WHERE id = $1
+		LIMIT 1
+	`, requestID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(404, errorResponse{Error: "registration request not found"})
+			return
+		}
+		c.JSON(500, errorResponse{Error: "failed to load registration request"})
+		return
+	}
+
+	if status != "pending" {
+		c.JSON(400, errorResponse{Error: "only pending requests can be rejected"})
+		return
+	}
+
+	if _, err := h.db.Exec(`
+		UPDATE registration_requests
+		SET status = 'rejected',
+		    rejection_reason = $1,
+		    reviewed_by = $2,
+		    reviewed_at = NOW(),
+		    updated_at = NOW()
+		WHERE id = $3
+	`, strings.TrimSpace(body.Reason), currentUser.ID, requestID); err != nil {
+		c.JSON(500, errorResponse{Error: "failed to reject registration request"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "registration request rejected"})
+}
+
+var (
+	errUserExists  = errors.New("username already exists")
+	errEmailExists = errors.New("email already exists")
+)
 
 func normalizeRole(role string) string {
 	switch strings.TrimSpace(strings.ToLower(role)) {
@@ -362,12 +752,61 @@ func validatePassword(password string) error {
 	return nil
 }
 
+func validateEmailAddress(email string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return "", fmt.Errorf("email is required")
+	}
+
+	parsed, err := mail.ParseAddress(normalized)
+	if err != nil || strings.ToLower(parsed.Address) != normalized {
+		return "", fmt.Errorf("email format is invalid")
+	}
+
+	return normalized, nil
+}
+
 func hashPassword(password string) (string, error) {
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
 	return string(hashBytes), nil
+}
+
+func (h *Handler) assertUserIdentityAvailable(username, email string) error {
+	args := []any{username}
+	query := `
+		SELECT id
+		FROM users
+		WHERE LOWER(username) = LOWER($1)
+	`
+	if strings.TrimSpace(email) != "" {
+		args = append(args, email)
+		query += ` OR LOWER(email) = LOWER($2)`
+	}
+	query += ` LIMIT 1`
+
+	var id int64
+	err := h.db.QueryRow(query, args...).Scan(&id)
+	if err == nil {
+		var byUsername bool
+		_ = h.db.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1
+				FROM users
+				WHERE LOWER(username) = LOWER($1)
+			)
+		`, username).Scan(&byUsername)
+		if byUsername {
+			return errUserExists
+		}
+		return errEmailExists
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return nil
 }
 
 func parsePagination(pageRaw, limitRaw string) (int, int, error) {

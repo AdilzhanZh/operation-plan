@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardPage from '../pages/DashboardPage.vue'
+import ForgotPasswordPage from '../pages/ForgotPasswordPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import RegisterPage from '../pages/RegisterPage.vue'
 import PlanningPeriodPage from '../pages/PlanningPeriodPage.vue'
@@ -21,6 +22,12 @@ const routes = [
     path: '/register',
     name: 'register',
     component: RegisterPage,
+    meta: { public: true }
+  },
+  {
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: ForgotPasswordPage,
     meta: { public: true }
   },
   {
@@ -82,7 +89,7 @@ router.beforeEach((to) => {
     return { name: 'login' }
   }
 
-  if ((to.name === 'login' || to.name === 'register') && authStore.isAuthenticated) {
+  if ((to.name === 'login' || to.name === 'register' || to.name === 'forgot-password') && authStore.isAuthenticated) {
     return { name: 'dashboard' }
   }
 

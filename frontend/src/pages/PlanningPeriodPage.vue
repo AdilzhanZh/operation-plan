@@ -684,7 +684,7 @@ onMounted(loadRows)
     </section>
 
     <p v-else class="message message-info">
-      {{ tr('Этот раздел для prorector доступен только в режиме просмотра.', 'Бұл бөлім prorector үшін тек оқу режимінде қолжетімді.') }}
+      {{ tr('Этот раздел для сотрудника доступен только в режиме просмотра.', 'Бұл бөлім қызметкер үшін тек оқу режимінде қолжетімді.') }}
     </p>
 
     <section class="panel panel-strong planning-card">
