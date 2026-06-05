@@ -57,13 +57,29 @@ func main() {
 	}
 
 	r := gin.New()
+	corsConfig := cors.Config{
+		AllowMethods: []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		MaxAge:       12 * time.Hour,
+	}
+
+	allowAll := false
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if origin == "*" {
+			allowAll = true
+			break
+		}
+	}
+
+	if allowAll {
+		corsConfig.AllowAllOrigins = true
+	} else {
+		corsConfig.AllowOrigins = cfg.CORSAllowedOrigins
+		corsConfig.AllowWildcard = true
+	}
+
 	r.Use(
-		cors.New(cors.Config{
-			AllowOrigins: cfg.CORSAllowedOrigins,
-			AllowMethods: []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
-			MaxAge:       12 * time.Hour,
-		}),
+		cors.New(corsConfig),
 		gin.Logger(),
 		gin.Recovery(),
 	)
