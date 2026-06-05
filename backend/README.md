@@ -69,7 +69,7 @@ docker start postgres-db-op
 PORT=8080
 LOG_LEVEL=DEBUG
 DB_HOST=localhost
-DB_PORT=5433
+DB_PORT=5432
 DB_USER=admin
 DB_PASSWORD=admin123
 DB_NAME=oper-plan
@@ -146,7 +146,7 @@ Default `.env` values are aligned with your Docker command:
 
 ```env
 DB_HOST=localhost
-DB_PORT=5433
+DB_PORT=5432
 DB_USER=admin
 DB_PASSWORD=admin123
 DB_NAME=oper-plan

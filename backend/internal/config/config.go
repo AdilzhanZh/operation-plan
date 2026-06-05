@@ -18,6 +18,7 @@ type Config struct {
 	DBName                 string
 	DBSSLMode              string
 	DBTimezone             string
+	DatabaseURL            string
 	SessionTTLHours        int
 	BootstrapAdminUsername string
 	BootstrapAdminPassword string
@@ -43,12 +44,13 @@ func Load() (*Config, error) {
 		Port:                   getEnv("PORT", "8080"),
 		LogLevel:               getEnv("LOG_LEVEL", "INFO"),
 		DBHost:                 getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:                 getEnv("DB_PORT", "5433"),
+		DBPort:                 getEnv("DB_PORT", "5432"),
 		DBUser:                 getEnv("DB_USER", "admin"),
 		DBPassword:             getEnv("DB_PASSWORD", "admin123"),
 		DBName:                 getEnv("DB_NAME", "oper-plan"),
 		DBSSLMode:              getEnv("DB_SSLMODE", "disable"),
 		DBTimezone:             getEnv("DB_TIMEZONE", "Asia/Qyzylorda"),
+		DatabaseURL:            getEnv("DATABASE_URL", ""),
 		SessionTTLHours:        getEnvInt("SESSION_TTL_HOURS", 24),
 		BootstrapAdminUsername: getEnv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
 		BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),

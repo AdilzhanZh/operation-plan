@@ -41,7 +41,11 @@ func main() {
 		log.Fatalf("failed to run migrations: %s", err.Error())
 	}
 
-	slog.Info("database connected and migrated", "host", cfg.DBHost, "port", cfg.DBPort, "dbname", cfg.DBName)
+	if cfg.DatabaseURL != "" {
+		slog.Info("database connected and migrated using DATABASE_URL")
+	} else {
+		slog.Info("database connected and migrated", "host", cfg.DBHost, "port", cfg.DBPort, "dbname", cfg.DBName)
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {

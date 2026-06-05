@@ -18,7 +18,7 @@ cp .env.example .env
 - Frontend: `http://localhost:5173`
 - Backend API: `http://localhost:8080`
 - Swagger: `http://localhost:8080/swagger/index.html`
-- PostgreSQL: `localhost:5433`
+- PostgreSQL: `localhost:5432`
 
 ### 2. Барлығын іске қосу
 
@@ -96,7 +96,7 @@ docker run --name postgres-db-op \
   -e POSTGRES_USER=admin \
   -e POSTGRES_PASSWORD=admin123 \
   -e POSTGRES_DB=oper-plan \
-  -p 5433:5432 \
+  -p 5432:5432 \
   -v gdata:/var/lib/postgresql/data \
   -d postgres:17
 ```
