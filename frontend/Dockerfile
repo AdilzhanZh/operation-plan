@@ -19,8 +19,9 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-ENV NGINX_ENVSUBST_FILTER=BACKEND_URL
-ENV BACKEND_URL=https://backend-production-3daa.up.railway.app
+ENV NGINX_ENVSUBST_FILTER="BACKEND_URL|RESOLVER_IP"
+ENV BACKEND_URL=http://backend:8080
+ENV RESOLVER_IP=127.0.0.11
 
 EXPOSE 80
 

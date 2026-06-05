@@ -47,7 +47,8 @@ This guide describes how to deploy the entire project (PostgreSQL, Go Backend, V
    - Сервис атауын (Service Name) `frontend` деп өзгертіңіз.
    - **Root Directory** параметрін `/frontend` деп орнатыңыз. (Railway автоматты түрде `/frontend/Dockerfile` арқылы жинайды).
 3. **Variables** қойындысына өтіп, келесі айнымалыларды қосыңыз:
-   - `BACKEND_URL`: `http://backend.railway.internal:8080` (Егер сіздің backend сервисіңіз Railway-де `backend` деп аталса, осы сілтеме арқылы ішкі желіде байланысады).
+   - `BACKEND_URL`: `http://backend.railway.internal:8080` (Немесе сіздің backend сервисіңіз Railway-де басқа атпен аталса: `http://${{backend.RAILWAY_PRIVATE_DOMAIN}}:${{backend.PORT}}`).
+   - `RESOLVER_IP`: `[fd12::10]` (Бұл Railway-дің ішкі DNS мекенжайы. Nginx-ке ішкі домендерді динамикалық түрде шешуге мүмкіндік береді).
 4. **Settings** қойындысында **Generate Domain** батырмасын басып, сыртқы сілтеме (Public URL) алыңыз.
 
 1. Select **New** -> **GitHub Repo** and connect the same repository again.
@@ -55,22 +56,6 @@ This guide describes how to deploy the entire project (PostgreSQL, Go Backend, V
    - Rename the service to `frontend`.
    - Set **Root Directory** to `/frontend`. (Railway will build using `/frontend/Dockerfile`).
 3. Go to the **Variables** tab and add:
-   - `BACKEND_URL`: `http://backend.railway.internal:8080` (Assuming your backend service is named `backend` in Railway, this enables internal network communication).
+   - `BACKEND_URL`: `http://backend.railway.internal:8080` (Or use `http://${{backend.RAILWAY_PRIVATE_DOMAIN}}:${{backend.PORT}}`).
+   - `RESOLVER_IP`: `[fd12::10]` (This is Railway's internal DNS resolver IP, allowing Nginx to dynamically resolve hosts).
 4. Go to **Settings** and click **Generate Domain** to get a public URL for your frontend.
-
-2. **Для фронтенда (если там Nginx / Node.js):** Если вы используете собственный `Dockerfile` с Nginx для раздачи статики, Nginx должен слушать порт, который Railway передает внутрь контейнера. 
-3. **Настройки в Railway:** Зайдите в карточку упавшего сервиса -> **Settings** -> раздел **Networking**. Найдите поле **Port**. Там должен быть указан тот порт, который реально слушает процесс внутри контейнера. Если ваш Go-бэк или Nginx жестко настроен на `8080`, впишите туда `8080` вручную, чтобы Railway знал, куда перенаправлять трафик.
-
----
-
-### Шаг 2: Смотрим живые Deploy Logs
-Чтобы не гадать, какая именно папка (фронтенд или бэкенд) выдает ошибку со скриншота `image_8c4598.png`:
-
-1. Вернитесь в панель Railway.
-2. Кликните по карточке сервиса, ссылку которого вы пытались открыть.
-3. Перейдите во вкладку **Deploy Logs**.
-4. Обновите страницу с ошибкой `image_8c4598.png` в соседней вкладке, чтобы спровоцировать новый запрос, и посмотрите, что пишется в логах в этот момент.
-
-Если приложение падает в момент запроса, в логах отобразится ошибка (например, `panic` в Go или `[error]` в Nginx). 
-
-Какой именно сервис (фронтенд или бэкенд) выдал эту ошибку, и что сейчас написано в его **Deploy Logs**?
