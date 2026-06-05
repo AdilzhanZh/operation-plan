@@ -17,6 +17,8 @@ FROM nginx:1.27-alpine
 RUN rm -f /etc/nginx/conf.d/default.conf
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY 15-resolve-dns.envsh /docker-entrypoint.d/15-resolve-dns.envsh
+RUN chmod +x /docker-entrypoint.d/15-resolve-dns.envsh
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 ENV NGINX_ENVSUBST_FILTER="BACKEND_URL|RESOLVER_IP"

@@ -1,0 +1,18 @@
+# Get the first nameserver from /etc/resolv.conf
+NS=$(grep nameserver /etc/resolv.conf | awk '{print $2}' | head -n 1)
+
+# If no nameserver is found, fallback to 127.0.0.11 (Docker DNS)
+if [ -z "$NS" ]; then
+  NS="127.0.0.11"
+fi
+
+# If it's IPv6 (contains colons) and not already wrapped in brackets, wrap it
+if echo "$NS" | grep -q ':'; then
+  if ! echo "$NS" | grep -q '^\['; then
+    NS="[$NS]"
+  fi
+fi
+
+# Export it so that envsubst can use it
+export RESOLVER_IP="$NS"
+echo "Dynamic resolver detected: $RESOLVER_IP"
